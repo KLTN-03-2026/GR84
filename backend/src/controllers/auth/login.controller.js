@@ -5,7 +5,7 @@ import authService from '../../services/auth.service.js';
 
 export const login = async (req, res, next) => {
   try {
-    const result = await authService.loginUser(req.body);
+    const result = await authService.loginUser(req.body, req);
     if (result.error) {
       return res.status(result.status).json({ success: false, message: result.error });
     }

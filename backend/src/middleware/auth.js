@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import UserSession from '../models/UserSession.js';
 import config from '../config/index.js';
 
 export const authenticate = async (req, res, next) => {
@@ -19,8 +20,53 @@ export const authenticate = async (req, res, next) => {
 
     try {
       const decoded = jwt.verify(token, config.jwtSecret);
+
+      // ★ Kiểm tra session có hợp lệ không (PB23 - Kill Session)
+      const tokenHash = UserSession.hashToken(token);
+      let session = await UserSession.findOne({ tokenHash });
+
+      if (!session) {
+        // Legacy token: JWT hợp lệ nhưng không có session record
+        // Auto-create session để migrate dữ liệu cũ
+        console.log('[Auth] Legacy token detected - auto-creating session for user:', decoded.id);
+
+        try {
+          session = await UserSession.createSession(decoded.id, token, req);
+          console.log('[Auth] Session auto-created for legacy token');
+        } catch (createErr) {
+          console.error('[Auth] Failed to create session for legacy token:', createErr.message);
+          // Nếu không tạo được session, vẫn cho phép access
+        }
+      }
+
+      // Nếu vẫn không có session (lỗi), vẫn cho phép nếu JWT hợp lệ
+      if (!session) {
+        console.log('[Auth] No session created, allowing access with valid JWT');
+      } else {
+        // Session tồn tại - check status
+        if (session.status !== 'active') {
+          return res.status(401).json({
+            success: false,
+            message: 'Session has been revoked',
+            code: 'SESSION_REVOKED'
+          });
+        }
+
+        // Check expiration
+        if (new Date() > session.tokenExpiresAt) {
+          return res.status(401).json({
+            success: false,
+            message: 'Token has expired',
+            code: 'TOKEN_EXPIRED'
+          });
+        }
+
+        // Cập nhật lastActiveAt
+        UserSession.touchSession(token).catch(() => {});
+      }
+
       req.user = await User.findById(decoded.id);
-      
+
       if (!req.user) {
         return res.status(401).json({
           success: false,
@@ -30,9 +76,18 @@ export const authenticate = async (req, res, next) => {
 
       next();
     } catch (error) {
+      let message = 'Invalid token';
+      let code = 'INVALID_TOKEN';
+
+      if (error.name === 'TokenExpiredError') {
+        message = 'Token has expired';
+        code = 'TOKEN_EXPIRED';
+      }
+
       return res.status(401).json({
         success: false,
-        message: 'Invalid token'
+        message,
+        code
       });
     }
   } catch (error) {

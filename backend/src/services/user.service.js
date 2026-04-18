@@ -202,8 +202,23 @@ export const updateUserProfile = async (userId, updates, file) => {
   }
 
   if (file) {
-    sanitized.avatar = `/uploads/${file.filename}`;
+    // Handle both local and Cloudinary URLs
+    if (file.path && file.path.startsWith('http')) {
+      // Cloudinary returns full URL in file.path
+      sanitized.avatar = file.path;
+    } else if (file.path) {
+      // Local storage path
+      sanitized.avatar = `/uploads/${file.filename}`;
+    }
   }
+
+  console.log('[updateUserProfile] Avatar URL:', sanitized.avatar);
+  console.log('[updateUserProfile] File info:', {
+    originalname: file?.originalname,
+    filename: file?.filename,
+    path: file?.path,
+    size: file?.size
+  });
 
   console.log('[updateUserProfile] 💾 Sanitized data:');
   console.log('  - fullName:', sanitized.fullName);

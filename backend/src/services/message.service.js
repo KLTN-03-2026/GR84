@@ -26,7 +26,7 @@ export const getMessages = async (matchId, userId, { page = 1, limit = 50 } = {}
 
   const [messages, total] = await Promise.all([
     Message.find(query)
-      .populate('sender senderId', 'username avatar')
+      .populate('senderId', 'username avatar')  // Only populate senderId
       .sort({ createdAt: 1 }) // ASC = chronological order (oldest first)
       .skip(skip)
       .limit(limit)
@@ -34,7 +34,12 @@ export const getMessages = async (matchId, userId, { page = 1, limit = 50 } = {}
     Message.countDocuments(query)
   ]);
 
-  // No need to reverse - already in correct order
+  // Transform: map senderId → sender object for frontend compatibility
+  const transformedMessages = messages.map(msg => ({
+    ...msg,
+    sender: msg.senderId || null,  // Use populated senderId as sender
+    senderId: msg.senderId?._id || msg.senderId || msg.senderId  // Keep ObjectId
+  }));
 
   await Message.updateMany(
     {
@@ -47,7 +52,7 @@ export const getMessages = async (matchId, userId, { page = 1, limit = 50 } = {}
   );
 
   return {
-    messages, // Already in chronological order (ASC)
+    messages: transformedMessages, // Already in chronological order (ASC)
     pagination: { page, limit, total, pages: Math.ceil(total / limit) }
   };
 };
@@ -80,12 +85,19 @@ export const sendMessage = async (matchId, userId, { content, image, mediaUrl, m
   }
 
   const message = await Message.create(messageData);
-  await message.populate('sender senderId', 'username avatar');
+
+  // Populate senderId and rename to sender
+  await message.populate('senderId', 'username avatar');
+  const populatedMessage = message.toObject();
+
+  // For frontend compatibility: replace senderId with sender object
+  populatedMessage.sender = populatedMessage.senderId;
+  delete populatedMessage.senderId;
 
   match.lastActivity = new Date();
   await match.save();
 
-  return { message };
+  return { message: populatedMessage };
 };
 
 export const getConversations = async (userId) => {

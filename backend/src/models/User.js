@@ -289,6 +289,17 @@ userSchema.methods.calculateProfileCompletion = function() {
 
 // Pre-save: hash password và tính profile completion
 userSchema.pre('save', async function(next) {
+  // MIGRATION: Copy password to passwordHash if passwordHash is missing but password exists
+  // This ensures backward compatibility for users created before migration
+  if (!this.passwordHash && this.password && !this.password.startsWith('$2')) {
+    // Legacy unhashed password - will be hashed below
+  } else if (!this.passwordHash && this.password && this.password.startsWith('$2')) {
+    // Already hashed password in legacy field - copy to new field
+    this.passwordHash = this.password;
+    this.password = undefined;
+    console.log(`[User Migration] Copied hashed password to passwordHash for user: ${this.username || this._id}`);
+  }
+  
   // Hash password mới
   if (this.isModified('password') || (this.isModified('passwordHash') && this.passwordHash && !this.passwordHash.startsWith('$2'))) {
     const salt = await bcrypt.genSalt(10);
@@ -296,6 +307,10 @@ userSchema.pre('save', async function(next) {
     const pass = this.passwordHash || this.password;
     if (pass && !pass.startsWith('$2')) {
       this.passwordHash = await bcrypt.hash(pass, salt);
+      // Clear legacy password field after migration
+      if (this.password) {
+        this.password = undefined;
+      }
     }
   }
   

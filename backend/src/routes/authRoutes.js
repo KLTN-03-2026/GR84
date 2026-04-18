@@ -111,9 +111,16 @@ router.get('/facebook/callback',
 
 // ============ EMAIL AUTH ROUTES ============
 
-router.post('/register', register);
+router.post('/register', (req, res, next) => {
+  console.log('[Auth] POST /register - Body:', JSON.stringify(req.body).substring(0, 200));
+  next();
+}, register);
+
 router.post('/register-json', register);
-router.post('/login', login);
+router.post('/login', (req, res, next) => {
+  console.log('[Auth] POST /login - Body:', JSON.stringify(req.body).substring(0, 200));
+  next();
+}, login);
 
 // ============ GOOGLE OAUTH (Token-based) ============
 

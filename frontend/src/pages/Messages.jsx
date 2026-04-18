@@ -11,11 +11,12 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useSocket } from '../context/SocketContext';
 import { messageService } from '../services/api';
 import Navbar from '../components/Navbar';
+import ChatPanel from '../components/ChatPanel';
 
 const EMOJIS = ['😀', '😍', '🥰', '😂', '🤍', '🔥', '👏', '✨', '😭', '👍', '❤️', '🎉', '💯', '🌟', '💪'];
 const ICEBREAKERS = ['Say Hi 👋', "What's your weekend plan?", 'Bạn thích hẹn hò ở đâu?'];
@@ -38,6 +39,8 @@ const getDateLabel = (iso) => {
 const Messages = () => {
   const { user } = useAuthStore();
   const { socket, isConnected } = useSocket();
+  const { matchId: routeMatchId } = useParams();
+  const navigate = useNavigate();
 
   // State
   const [conversations, setConversations] = useState([]);
@@ -198,6 +201,17 @@ const Messages = () => {
   useEffect(() => {
     fetchConversations();
   }, []);
+
+  // Auto-select conversation when matchId is provided in route
+  useEffect(() => {
+    if (routeMatchId && conversations.length > 0) {
+      // Check if the conversation exists in the list
+      const exists = conversations.some(c => c.matchId === routeMatchId || c._id === routeMatchId);
+      if (exists) {
+        setSelectedConversationId(routeMatchId);
+      }
+    }
+  }, [routeMatchId, conversations]);
 
   useEffect(() => {
     if (selectedConversationId) {
@@ -650,15 +664,15 @@ const Messages = () => {
                         <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
                       </svg>
                     </button>
-                    <Link
-                      to={`/chat/${activeConversation.matchId}`}
+                    <button
+                      onClick={() => navigate(`/video-call/${activeConversation.matchId}`)}
                       className="p-2 text-pink-500 hover:text-pink-600 hover:scale-110 hover:bg-rose-50 rounded-full transition-transform duration-200"
                       title="Gọi video"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                       </svg>
-                    </Link>
+                    </button>
 
                     {showSafetyMenu && (
                       <div className="absolute right-0 top-12 z-20 min-w-[150px] rounded-xl border border-gray-300 bg-white shadow-lg p-1">
@@ -748,9 +762,10 @@ const Messages = () => {
                 ) : (
                   <div className="space-y-3">
                     {messages.map((msg, idx) => {
-                      const senderData = msg.sender?._id ? msg.sender : 
-                                        (msg.senderId?._id ? msg.senderId : null);
-                      const isOwn = senderData?._id === user?._id || msg.sender === user?._id;
+                      // Get sender data - backend populates sender as full object
+                      const senderData = msg.sender || null;
+                      const isOwn = senderData?._id?.toString() === user?._id?.toString() ||
+                                   msg.senderId?.toString() === user?._id?.toString();
                       const senderName = senderData?.username || senderData?.fullName || 'Unknown';
                       const senderAvatar = senderData?.avatar;
                       const isFailed = failedMessages.has(msg._tempId || msg._id);

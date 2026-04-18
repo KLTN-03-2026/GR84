@@ -51,6 +51,12 @@ export const useAuthStore = create((set, get) => ({
     try {
       const data = await authService.login(credentials);
       
+      if (data.user?.isLocked || data.user?.status === 'banned') {
+        const banMsg = 'Tài khoản của bạn đã bị khóa bởi Quản trị viên.';
+        set({ error: banMsg, isLoading: false });
+        throw new Error(banMsg);
+      }
+
       if (data.token) {
         localStorage.setItem('token', data.token);
       }
@@ -61,8 +67,11 @@ export const useAuthStore = create((set, get) => ({
       set({ user: data.user, token: data.token, isLoading: false });
       return data;
     } catch (error) {
+      const errMsg = error.message === 'Tài khoản của bạn đã bị khóa bởi Quản trị viên.' 
+        ? error.message 
+        : (error.response?.data?.message || 'Đăng nhập thất bại');
       set({ 
-        error: error.response?.data?.message || 'Login failed', 
+        error: errMsg, 
         isLoading: false 
       });
       throw error;
@@ -110,6 +119,13 @@ export const useAuthStore = create((set, get) => ({
     set({ isLoading: true });
     try {
       const data = await authService.getCurrentUser();
+      if (data.user?.isLocked || data.user?.status === 'banned') {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        set({ user: null, token: null, isLoading: false });
+        throw new Error('Tài khoản của bạn đã bị khóa bởi Quản trị viên.');
+      }
+
       if (data.user) {
         localStorage.setItem('user', JSON.stringify(data.user));
       }
@@ -117,6 +133,14 @@ export const useAuthStore = create((set, get) => ({
       return data;
     } catch (error) {
       set({ isLoading: false });
+      // Check if error is due to session issues (legacy token)
+      if (error.response?.data?.code === 'SESSION_REQUIRED' ||
+          error.response?.data?.code === 'SESSION_REVOKED' ||
+          error.response?.data?.code === 'TOKEN_EXPIRED') {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        // Rethrow to let caller handle
+      }
       throw error;
     }
   },

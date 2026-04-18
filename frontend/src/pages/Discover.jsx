@@ -117,7 +117,7 @@ const Discover = () => {
       const conversationId = res?.conversationId || res?.matchId;
       
       if (isMatch && conversationId) {
-        navigate(`/chat/${conversationId}`);
+        navigate(`/messages/${conversationId}`);
         return;
       }
       
@@ -156,7 +156,7 @@ const Discover = () => {
         const conversationId = res?.match?._id || res?.matchId;
         setTimeout(() => {
           if (conversationId) {
-            navigate(`/chat/${conversationId}`);
+            navigate(`/messages/${conversationId}`);
           }
         }, 1500);
         return;

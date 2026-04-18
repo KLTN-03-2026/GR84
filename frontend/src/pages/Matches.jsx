@@ -170,11 +170,11 @@ const Matches = () => {
                 const hasUnread = match.unreadCount > 0;
 
                 return (
-                  <div
-                    key={match._id}
-                    className="bg-gray-800 rounded-2xl p-4 flex items-center gap-4 hover:bg-gray-750 transition-colors cursor-pointer group"
-                    onClick={() => navigate(`/chat/${match._id}`)}
-                  >
+                <div
+                  key={match._id}
+                  className="bg-gray-800 rounded-2xl p-4 flex items-center gap-4 hover:bg-gray-750 transition-colors cursor-pointer group"
+                  onClick={() => navigate(`/messages/${match._id}`)}
+                >
                     {/* Avatar */}
                     <div className="relative flex-shrink-0">
                       <div className="w-16 h-16 rounded-2xl bg-gray-700 overflow-hidden">

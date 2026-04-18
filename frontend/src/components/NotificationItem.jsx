@@ -119,7 +119,7 @@ const NotificationItem = ({ notification, onMarkAsRead }) => {
     switch (type) {
       case 'match':
         if (matchId) {
-          navigate(`/chat/${matchId}`);
+          navigate(`/messages/${matchId}`);
         } else if (user?._id) {
           navigate(`/profile/${user._id}`);
         }
@@ -131,7 +131,7 @@ const NotificationItem = ({ notification, onMarkAsRead }) => {
         break;
       case 'message':
         if (matchId) {
-          navigate(`/chat/${matchId}`);
+          navigate(`/messages/${matchId}`);
         }
         break;
       case 'ai':
@@ -147,7 +147,7 @@ const NotificationItem = ({ notification, onMarkAsRead }) => {
     e.stopPropagation();
     onMarkAsRead?.(notification.id);
     if (matchId) {
-      navigate(`/chat/${matchId}`);
+      navigate(`/messages/${matchId}`);
     }
   };
   

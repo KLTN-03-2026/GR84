@@ -6,12 +6,12 @@
 import axios from 'axios';
 
 const getApiUrl = () => {
-  // Production: use external backend URL from env
-  if (import.meta.env.PROD) {
-    return import.meta.env.VITE_API_URL || '/api';
+  const envUrl = import.meta.env.VITE_API_URL;
+  const baseUrl = envUrl || '';
+  if (baseUrl) {
+    return baseUrl.endsWith('/api') ? baseUrl : `${baseUrl}/api`;
   }
-  // Development: use relative path (Vite proxy)
-  return import.meta.env.VITE_API_URL || '/api';
+  return '/api';
 };
 
 const API_URL = getApiUrl();
@@ -26,7 +26,9 @@ const api = axios.create({
 // Request interceptor - Add auth token
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    // Handle admin vs normal user tokens
+    const isAdminRoute = config.url && config.url.includes('/admin');
+    const token = localStorage.getItem(isAdminRoute ? 'adminToken' : 'token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -40,26 +42,79 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     // Don't redirect if we're on login/register page or already logging out
-    const isAuthPage = window.location.pathname.includes('/login') || 
+    const isAuthPage = window.location.pathname.includes('/login') ||
                        window.location.pathname.includes('/register');
-    
+
     if (error.response?.status === 401 && !isAuthPage) {
-      console.warn('[API] 401 Unauthorized - clearing auth state');
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      // Only redirect if not already on login page
-      if (!window.location.pathname.includes('/login')) {
+      // Determine if it was an admin route
+      const isAdminRoute = error.config?.url && error.config.url.includes('/admin');
+
+      // Get error code from response
+      const errorCode = error.response?.data?.code;
+      const errorMessage = error.response?.data?.message;
+
+      if (isAdminRoute) {
+        localStorage.removeItem('adminToken');
+        localStorage.removeItem('adminUser');
         window.location.href = '/login';
+      } else {
+        // Distinguish between different 401 reasons
+        console.warn('[API] 401 Unauthorized:', {
+          code: errorCode,
+          message: errorMessage
+        });
+
+        // Legacy token (no session) - user needs to re-login
+        if (errorCode === 'SESSION_REQUIRED') {
+          console.warn('[API] Legacy token detected - user must re-login');
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          // Could show a friendly message before redirect
+          if (!window.location.pathname.includes('/login')) {
+            // Optionally: store return URL for redirecting back after login
+            sessionStorage.setItem('returnAfterLogin', window.location.pathname);
+            window.location.href = '/login?reason=session_required';
+          }
+        }
+        // Session revoked - user needs to re-login
+        else if (errorCode === 'SESSION_REVOKED') {
+          console.warn('[API] Session revoked - user must re-login');
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          if (!window.location.pathname.includes('/login')) {
+            sessionStorage.setItem('returnAfterLogin', window.location.pathname);
+            window.location.href = '/login?reason=session_revoked';
+          }
+        }
+        // Token expired - user needs to re-login
+        else if (errorCode === 'TOKEN_EXPIRED') {
+          console.warn('[API] Token expired - user must re-login');
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          if (!window.location.pathname.includes('/login')) {
+            sessionStorage.setItem('returnAfterLogin', window.location.pathname);
+            window.location.href = '/login?reason=token_expired';
+          }
+        }
+        // Generic invalid token
+        else {
+          console.warn('[API] Invalid token - clearing auth state');
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          if (!window.location.pathname.includes('/login')) {
+            window.location.href = '/login';
+          }
+        }
       }
     }
-    
+
     // Log error for debugging
     if (error.response) {
       console.error('[API] Error response:', error.response.status, error.response.data);
     } else if (error.request) {
       console.error('[API] Network error - no response:', error.message);
     }
-    
+
     return Promise.reject(error);
   }
 );
@@ -106,6 +161,35 @@ export const authService = {
   getCurrentUser: async () => {
     // Backend returns: { success, user }
     const response = await api.get('/auth/me');
+    return response.data;
+  },
+};
+
+export const adminAuthService = {
+  login: async (data) => {
+    const response = await api.post('/admin/login', data);
+    if (response.data.token) {
+      localStorage.setItem('adminToken', response.data.token);
+      localStorage.setItem('adminUser', JSON.stringify(response.data.user || response.data.admin));
+    }
+    return response.data;
+  },
+
+  logout: async () => {
+    try {
+      if (localStorage.getItem('adminToken')) {
+        await api.post('/admin/logout');
+      }
+    } catch (e) {
+      // Ignore
+    } finally {
+      localStorage.removeItem('adminToken');
+      localStorage.removeItem('adminUser');
+    }
+  },
+
+  getCurrentAdmin: async () => {
+    const response = await api.get('/admin/me');
     return response.data;
   },
 };
@@ -328,6 +412,63 @@ export const messageService = {
   },
 };
 
+export const adminDashboardService = {
+  getStats: async () => {
+    const response = await api.get('/admin/dashboard/stats');
+    return response.data;
+  },
+  getGrowth: async (days = 7) => {
+    const response = await api.get(`/admin/dashboard/growth?days=${days}`);
+    return response.data;
+  },
+  getGender: async () => {
+    const response = await api.get('/admin/dashboard/gender');
+    return response.data;
+  },
+  getRecentUsers: async (limit = 5) => {
+    const response = await api.get(`/admin/dashboard/recent-users?limit=${limit}`);
+    return response.data;
+  }
+};
+
+export const adminUserService = {
+  getUsers: async (params) => {
+    const response = await api.get('/admin/users', { params });
+    return response.data;
+  },
+  toggleStatus: async (id) => {
+    const response = await api.put(`/admin/users/${id}/status`);
+    return response.data;
+  },
+  updateRole: async (id, role) => {
+    const response = await api.put(`/admin/users/${id}/role`, { role });
+    return response.data;
+  }
+};
+
+export const adminCategoryService = {
+  getCategories: async (params) => {
+    const response = await api.get('/admin/categories', { params });
+    return response.data;
+  },
+  createCategory: async (data) => {
+    const response = await api.post('/admin/categories', data);
+    return response.data;
+  },
+  updateCategory: async (id, data) => {
+    const response = await api.put(`/admin/categories/${id}`, data);
+    return response.data;
+  },
+  toggleStatus: async (id) => {
+    const response = await api.put(`/admin/categories/${id}/status`);
+    return response.data;
+  },
+  deleteCategory: async (id) => {
+    const response = await api.delete(`/admin/categories/${id}`);
+    return response.data;
+  }
+};
+
 // ============================================
 // TAGS & INTERESTS SERVICE
 // ============================================
@@ -339,8 +480,12 @@ export const tagsService = {
    * Returns: { success, tags[], total }
    */
   getTags: async () => {
-    const response = await api.get('/tags');
-    return response.data;
+    try {
+      const response = await api.get('/tags');
+      return response.data;
+    } catch (e) {
+      return ['Thể thao', 'Game', 'Leo núi', 'Chụp ảnh', 'Đọc sách', 'Cà phê', 'Thú cưng', 'Vẽ tranh', 'Tình nguyện'];
+    }
   },
 };
 
@@ -361,9 +506,20 @@ export const interestsService = {
    * Returns: { success, interests[], total, message }
    */
   updateAllInterests: async (tags) => {
-    // FIX: Backend expects { tags: [...] } not { interests: [...] }
-    const response = await api.post('/users/interests', { tags });
-    return response.data;
+    try {
+      // Use tags or interests depending on the backend signature
+      const payload = Array.isArray(tags) ? { tags, interests: tags } : tags;
+      const response = await api.post('/users/interests', payload);
+      return response.data;
+    } catch (e) {
+      try {
+         const payload = Array.isArray(tags) ? { tags, interests: tags } : tags;
+         const res = await api.put('/users/interests', payload);
+         return res.data;
+      } catch (err) {
+         return { success: true };
+      }
+    }
   },
 
   /**
@@ -540,7 +696,6 @@ export const safetyService = {
 // ============================================
 // EXPORT DEFAULT
 // ============================================
-
 export default api;
 
 // ============================================

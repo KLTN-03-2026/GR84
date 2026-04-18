@@ -592,10 +592,10 @@ const Chat = () => {
             </div>
           ) : (
             messages.map((message, index) => {
-              // Get sender info
-              const senderData = message.sender?._id ? message.sender : 
-                                (message.senderId?._id ? message.senderId : null);
-              const isOwnMessage = senderData?._id === user?._id || message.sender === user?._id;
+              // Get sender info - backend populates senderId as sender
+              const senderData = message.sender || null;
+              const isOwnMessage = senderData?._id?.toString() === user?._id?.toString() ||
+                                   message.senderId?.toString() === user?._id?.toString();
               const senderName = senderData?.username || senderData?.fullName || 'Unknown';
               const senderAvatar = senderData?.avatar;
 

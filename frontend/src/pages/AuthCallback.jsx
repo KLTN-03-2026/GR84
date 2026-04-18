@@ -5,7 +5,7 @@ import { useAuthStore } from '../store/authStore';
 const AuthCallback = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { setUser, setToken, fetchCurrentUser } = useAuthStore();
+  const { setUser, setToken, fetchCurrentUser, clearError } = useAuthStore();
 
   const handleCallback = useCallback(async () => {
     const token = searchParams.get('token');
@@ -26,16 +26,36 @@ const AuthCallback = () => {
       setToken(token);
 
       const data = await fetchCurrentUser();
-      
+
       if (data?.user) {
         setUser(data.user);
+
+        // Auto-detect admin
+        if (data.user.role === 'admin' || data.user.role === 'Admin') {
+           navigate('/admin/dashboard');
+           return;
+        }
       }
 
+      // Redirect normal users to discover page
       navigate('/discover');
-    } catch {
-      navigate('/login?error=auth_failed');
+    } catch (err) {
+      // Check if error is from API interceptor (legacy token)
+      const errorData = err?.response?.data;
+      if (errorData?.code === 'SESSION_REQUIRED') {
+        clearError();
+        navigate('/login?reason=session_required');
+      } else if (errorData?.code === 'SESSION_REVOKED') {
+        clearError();
+        navigate('/login?reason=session_revoked');
+      } else if (errorData?.code === 'TOKEN_EXPIRED') {
+        clearError();
+        navigate('/login?reason=token_expired');
+      } else {
+        navigate('/login?error=auth_failed');
+      }
     }
-  }, [searchParams, navigate, setUser, setToken, fetchCurrentUser]);
+  }, [searchParams, navigate, setUser, setToken, fetchCurrentUser, clearError]);
 
   useEffect(() => {
     handleCallback();

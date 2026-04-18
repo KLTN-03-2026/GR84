@@ -136,7 +136,7 @@ const MatchNotification = ({ matchData, onClose }) => {
   const handleGoToChat = () => {
     onClose();
     if (matchData.matchId) {
-      navigate(`/chat/${matchData.matchId}`);
+      navigate(`/messages/${matchData.matchId}`);
     }
   };
 

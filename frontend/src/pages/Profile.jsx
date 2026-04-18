@@ -426,12 +426,12 @@ const Profile = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
                 </svg>
               </button>
-              <Link
-                to={`/chat/${profile?._id}`}
+              <button
+                onClick={() => navigate(`/video-call/${profile?._id}`)}
                 className="flex-1 max-w-xs py-4 bg-gradient-to-r from-pink-500 to-purple-600 text-white text-center font-semibold rounded-full hover:from-pink-600 hover:to-purple-700 transition-all"
               >
-                Send Message
-              </Link>
+                Gọi video
+              </button>
             </div>
           )}
 

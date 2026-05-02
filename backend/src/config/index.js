@@ -81,7 +81,7 @@ export default {
   isProduction,
 
   // MongoDB
-  mongodbUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/dating-app',
+  mongodbUri: process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/dating-app',
 
   // JWT
   jwtSecret: process.env.JWT_SECRET || 'dev-secret-key-change-in-production',
@@ -116,5 +116,8 @@ export default {
 
   // Cloudinary
   cloudinary: cloudinaryConfig,
-  hasCloudinary
+  hasCloudinary,
+
+  // Redis
+  redisUrl: process.env.REDIS_URL || 'redis://localhost:6379'
 };

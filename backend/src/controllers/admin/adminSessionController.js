@@ -94,19 +94,19 @@ export const killSession = async (req, res, next) => {
     const result = await sessionService.killSession(id, adminId, reason);
 
     if (result.error) {
+      // PB24: Ghi log thất bại
+      await AdminLog.logAction(req.user, 'Ngắt phiên làm việc', 'Thất bại', `Thao tác thất bại: ${result.error}`, req);
+
       return res.status(result.status).json({
         success: false,
         message: result.error
       });
     }
 
-    // Ghi AdminLog
-    await AdminLog.logAction(adminId, 'session_killed', {
+    // Ghi AdminLog - PB24
+    await AdminLog.logAction(req.user, 'Ngắt phiên làm việc', 'Thành công', `Ngắt kết nối phiên làm việc ID: ${id}`, req, {
       targetId: result.userId,
-      description: `Ngắt kết nối phiên làm việc: ${id}`,
-      deviceInfo: req.headers['user-agent'] || 'Unknown Device',
       metadata: {
-        ip: req.ip,
         sessionId: id,
         reason: reason || 'Admin kill session'
       }
@@ -152,12 +152,9 @@ export const bulkKillSessions = async (req, res, next) => {
       });
     }
 
-    // Ghi AdminLog
-    await AdminLog.logAction(adminId, 'sessions_bulk_killed', {
-      description: `Ngắt kết nối hàng loạt ${result.revokedCount} phiên làm việc`,
-      deviceInfo: req.headers['user-agent'] || 'Unknown Device',
+    // Ghi AdminLog - PB24
+    await AdminLog.logAction(req.user, 'Ngắt hàng loạt phiên', 'Thành công', `Ngắt kết nối hàng loạt ${result.revokedCount} phiên làm việc`, req, {
       metadata: {
-        ip: req.ip,
         sessionIds,
         revokedCount: result.revokedCount,
         reason: reason || 'Admin bulk kill sessions'

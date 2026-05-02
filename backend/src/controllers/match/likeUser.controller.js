@@ -6,13 +6,20 @@ import matchService from '../../services/match.service.js';
 
 export const likeUser = async (req, res, next) => {
   try {
-    const result = await matchService.likeUser(req.user._id, req.body.userId);
+    // Decode the Base64 user ID back to standard string (Database ID format)
+    const targetUserIdRaw = req.body.userId;
+    const targetUserId = targetUserIdRaw ? Buffer.from(targetUserIdRaw, 'base64').toString('ascii') : null;
+
+    if (!targetUserId) {
+      return res.status(400).json({ success: false, message: 'Invalid user ID' });
+    }
+
+    const result = await matchService.likeUser(req.user._id, targetUserId);
     if (result.error) {
       return res.status(result.status).json({ success: false, message: result.error });
     }
 
     const io = req.app.get('io');
-    const targetUserId = req.body.userId;
     const otherUser = req.user;
 
     // ========== MATCH: Create conversation and navigate ==========

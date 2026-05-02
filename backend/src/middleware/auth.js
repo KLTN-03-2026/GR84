@@ -119,7 +119,7 @@ export const optionalAuth = async (req, res, next) => {
 };
 
 export const authorizeAdmin = (req, res, next) => {
-  if (req.user && req.user.role === 'admin') {
+  if (req.user && ['admin', 'super_admin'].includes(req.user.role)) {
     next();
   } else {
     return res.status(403).json({

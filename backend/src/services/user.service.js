@@ -249,24 +249,21 @@ export const updateUserProfile = async (userId, updates, file) => {
 export const getUserMatches = async (userId) => {
   const matches = await Match.findUserMatches(userId);
 
+  // formattedMatches already contains the populated user in 'userId' field
+  // thanks to Match.findUserMatches and getOtherUser()
   const formattedMatches = matches.map(match => {
-    const otherUserId = match.getOtherUser(userId);
+    const otherUser = match.getOtherUser(userId);
     return {
       _id: match._id,
       matchId: match._id,
-      userId: otherUserId,
+      userId: otherUser, // This is already the populated user object
       matchedAt: match.matchedAt || match.createdAt,
       lastActivity: match.lastActivity,
       createdAt: match.createdAt
     };
   });
 
-  const populatedMatches = await Match.populate(formattedMatches, {
-    path: 'userId',
-    select: '-password -passwordHash'
-  });
-
-  return { matches: populatedMatches };
+  return { matches: formattedMatches };
 };
 
 export const getRecommendedUsers = async (userId, options = {}) => {

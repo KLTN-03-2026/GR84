@@ -13,7 +13,7 @@ import { updateProfile } from '../controllers/user/updateProfile.controller.js';
 import { getUserMatches } from '../controllers/user/getUserMatches.controller.js';
 import { getRecommendedUsers } from '../controllers/user/getRecommendedUsers.controller.js';
 import { authenticate } from '../middleware/auth.js';
-
+import { updateMyProfile } from '../controllers/userProfile/userProfile.controller.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -81,6 +81,13 @@ router.get('/', authenticate, getUsers);
 router.get('/recommendations', authenticate, getRecommendedUsers);
 router.get('/matches', authenticate, getUserMatches);
 router.get('/:id', authenticate, getUserById);
-router.put('/profile', authenticate, upload.single('avatar'), updateProfile);
-
+router.post(
+  '/profile/update-verify',
+  authenticate,
+  upload.fields([
+    { name: 'avatar', maxCount: 1 },
+    { name: 'biometricPhoto', maxCount: 1 }
+  ]),
+  updateMyProfile // Hàm này sẽ xử lý lưu DB và gọi AI sync/verify
+);
 export default router;

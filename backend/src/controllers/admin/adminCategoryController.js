@@ -6,7 +6,7 @@ export const getCategories = async (req, res) => {
   try {
     const { category, status, search, page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    
+
     const query = {};
     if (category) query.category = category;
     if (status) query.status = status;
@@ -39,11 +39,13 @@ export const addCategory = async (req, res) => {
     const adminId = req.user._id;
 
     if (!name || name.trim() === '') {
+      await AdminLog.logAction(req.user, 'Thêm danh mục', 'Thất bại', 'Tên danh mục không được để trống', req);
       return res.status(400).json({ success: false, message: 'Tên danh mục không được để trống' });
     }
 
     const existing = await Tag.findOne({ name: name.trim(), category });
     if (existing) {
+      await AdminLog.logAction(req.user, 'Thêm danh mục', 'Thất bại', `Danh mục "${name.trim()}" đã tồn tại trong nhóm ${category}`, req);
       return res.status(400).json({ success: false, message: 'Tên danh mục đã tồn tại trong nhóm này' });
     }
 
@@ -57,10 +59,9 @@ export const addCategory = async (req, res) => {
 
     await newTag.save();
 
-    await AdminLog.logAction(adminId, 'ADD_CATEGORY', {
-      targetId: newTag._id,
-      description: `Đã thêm danh mục mới: ${newTag.name} (Nhóm: ${newTag.category})`,
-      deviceInfo: req.headers['user-agent'] || 'Unknown'
+    // PB24: Ghi nhật ký hệ thống
+    await AdminLog.logAction(req.user, 'Thêm danh mục', 'Thành công', `Đã thêm danh mục mới: ${newTag.name} (Nhóm: ${newTag.category})`, req, {
+      targetId: newTag._id
     });
 
     res.status(201).json({ success: true, message: 'Cập nhật danh mục thành công', data: newTag });
@@ -89,6 +90,7 @@ export const updateCategory = async (req, res) => {
     const catToCheck = category || tag.category;
     const existing = await Tag.findOne({ name: name.trim(), category: catToCheck, _id: { $ne: id } });
     if (existing) {
+      await AdminLog.logAction(req.user, 'Cập nhật danh mục', 'Thất bại', `Cập nhật thất bại: Tên "${name.trim()}" đã tồn tại trong nhóm ${catToCheck}`, req, { targetId: id });
       return res.status(400).json({ success: false, message: 'Tên danh mục đã tồn tại trong nhóm này' });
     }
 
@@ -100,10 +102,9 @@ export const updateCategory = async (req, res) => {
 
     await tag.save();
 
-    await AdminLog.logAction(adminId, 'UPDATE_CATEGORY', {
-      targetId: tag._id,
-      description: `Đã cập nhật danh mục: ${oldName} -> ${tag.name}`,
-      deviceInfo: req.headers['user-agent'] || 'Unknown'
+    // PB24: Ghi nhật ký hệ thống
+    await AdminLog.logAction(req.user, 'Cập nhật danh mục', 'Thành công', `Đã cập nhật danh mục: ${oldName} -> ${tag.name}`, req, {
+      targetId: tag._id
     });
 
     res.json({ success: true, message: 'Cập nhật danh mục thành công', data: tag });
@@ -128,18 +129,18 @@ export const deleteCategory = async (req, res) => {
     const inUseCount = tag.usageCount || 0;
 
     if (inUseCount > 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Không được phép xóa danh mục đang có người dùng sử dụng. Hãy chuyển trạng thái sang Ẩn.' 
+      await AdminLog.logAction(req.user, 'Xóa danh mục', 'Thất bại', `Không thể xóa danh mục "${tag.name}" vì đang có ${inUseCount} người dùng sử dụng`, req, { targetId: id });
+      return res.status(400).json({
+        success: false,
+        message: 'Không được phép xóa danh mục đang có người dùng sử dụng. Hãy chuyển trạng thái sang Ẩn.'
       });
     }
 
     await Tag.findByIdAndDelete(id);
 
-    await AdminLog.logAction(adminId, 'DELETE_CATEGORY', {
-      targetId: id,
-      description: `Đã xóa danh mục: ${tagName} (Nhóm: ${tag.category})`,
-      deviceInfo: req.headers['user-agent'] || 'Unknown'
+    // PB24: Ghi nhật ký hệ thống
+    await AdminLog.logAction(req.user, 'Xóa danh mục', 'Thành công', `Đã xóa danh mục: ${tagName} (Nhóm: ${tag.category})`, req, {
+      targetId: id
     });
 
     res.json({ success: true, message: 'Xóa danh mục thành công' });
@@ -162,10 +163,9 @@ export const toggleCategoryStatus = async (req, res) => {
     tag.status = tag.status === 'active' ? 'hidden' : 'active';
     await tag.save();
 
-    await AdminLog.logAction(adminId, 'TOGGLE_CATEGORY_STATUS', {
-      targetId: tag._id,
-      description: `Chuyển trạng thái danh mục: ${tag.name} thành ${tag.status}`,
-      deviceInfo: req.headers['user-agent'] || 'Unknown'
+    // PB24: Ghi nhật ký hệ thống
+    await AdminLog.logAction(req.user, 'Đổi trạng thái danh mục', 'Thành công', `Chuyển trạng thái danh mục: ${tag.name} thành ${tag.status}`, req, {
+      targetId: tag._id
     });
 
     res.json({ success: true, message: 'Cập nhật danh mục thành công', data: tag });
@@ -181,10 +181,8 @@ export const syncCategories = async (req, res) => {
 
     const results = await tagSyncService.syncAllTagsUsage();
 
-    await AdminLog.logAction(adminId, 'SYNC_CATEGORIES_USAGE', {
-      description: `Đã thực hiện đồng bộ hóa lượt sử dụng danh mục. Cập nhật ${results.updated}/${results.total} mục.`,
-      deviceInfo: req.headers['user-agent'] || 'Unknown'
-    });
+    // PB24: Ghi nhật ký hệ thống
+    await AdminLog.logAction(req.user, 'Đồng bộ danh mục', 'Thành công', `Đã thực hiện đồng bộ hóa lượt sử dụng danh mục. Cập nhật ${results.updated}/${results.total} mục.`, req);
 
     res.json({
       success: true,

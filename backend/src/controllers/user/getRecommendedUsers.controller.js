@@ -25,10 +25,28 @@ export const getRecommendedUsers = async (req, res, next) => {
 
     console.log('[GetRecommendedUsers] returning', result.users?.length, 'users with pagination');
 
-    // Return with pagination metadata
+    // Return with pagination metadata and secure data payload
+    const secureUsers = result.users.map(u => {
+      // Create a plain object to avoid modifying the Mongoose document directly
+      const uObj = typeof u.toJSON === 'function' ? u.toJSON() : { ...u };
+      
+      // Absolute PII Removal
+      delete uObj.email;
+      delete uObj.password;
+      delete uObj.passwordHash;
+      
+      // Hide Database ID by replacing it with a Base64 encoded string
+      if (uObj._id) {
+        uObj.id = Buffer.from(uObj._id.toString()).toString('base64');
+        delete uObj._id;
+      }
+      
+      return uObj;
+    });
+
     return res.json({
       success: true,
-      users: result.users,
+      users: secureUsers,
       pagination: result.pagination
     });
   } catch (error) {

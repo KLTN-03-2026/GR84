@@ -1,630 +1,829 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { userService, matchService } from '../services/api';
+import { userService, matchService, getFullImageUrl } from '../services/api';
+import { aiMatchService } from '../services/aiService';
 import Navbar from '../components/Navbar';
+import SidebarMenu from '../components/SidebarMenu';
+import FilterModal from '../components/FilterModal';
+import ProfileDetailModal from '../components/ProfileDetailModal';
 
-/* ─── Helper: Format location for display ─── */
-const formatLocation = (location) => {
-  if (!location) return null;
-  
-  // If it's a string, return as-is
-  if (typeof location === 'string') {
-    return location.trim() || null;
-  }
-  
-  // If it's an object (GeoJSON format)
-  if (typeof location === 'object') {
-    // Handle locationText if available
-    if (location.locationText) return location.locationText;
-    // Don't expose raw coordinates to users
-  }
-  
-  return null;
+/* ─── Icons ─── */
+const Icons = {
+    Target: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 20} height={props.size || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" /></svg>,
+    Gift: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 20} height={props.size || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><polyline points="20 12 20 22 4 22 4 12" /><rect x="2" y="7" width="20" height="5" /><line x1="12" y1="22" x2="12" y2="7" /><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z" /><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" /></svg>,
+    Activity: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 20} height={props.size || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>,
+    Compass: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 20} height={props.size || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="12" cy="12" r="10" /><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" /></svg>,
+    User: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 20} height={props.size || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>,
+    Settings: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 20} height={props.size || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>,
+    Message: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 20} height={props.size || 20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>,
+    ChevronLeft: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><polyline points="15 18 9 12 15 6"></polyline></svg>,
+    ChevronRight: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><polyline points="9 18 15 12 9 6"></polyline></svg>,
+    Menu: (props) => <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
 };
+
+const BG_PAGE = 'linear-gradient(160deg, #fff8fa 0%, #fdf4ff 55%, #f5f3ff 100%)';
 
 /* ─── AI Score Ring ─── */
 const AIScoreRing = ({ score = 85 }) => {
-  const r = 20, circ = 2 * Math.PI * r;
-  const offset = circ - (score / 100) * circ;
-  return (
-    <div className="relative flex-shrink-0" style={{ width: 48, height: 48 }}>
-      <svg className="absolute inset-0" style={{ transform: 'rotate(-90deg)' }} width="48" height="48" viewBox="0 0 48 48">
-        <defs>
-          <linearGradient id="ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#fb7185" />
-            <stop offset="100%" stopColor="#f43f5e" />
-          </linearGradient>
-        </defs>
-        <circle cx="24" cy="24" r={r} fill="none" stroke="#fce7f3" strokeWidth="4" />
-        <circle cx="24" cy="24" r={r} fill="none" stroke="url(#ring-grad)" strokeWidth="4"
-          strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
-          style={{ transition: 'stroke-dashoffset 1.2s ease' }} />
-      </svg>
-      <div className="absolute inset-0 flex items-center justify-center">
-        <span style={{ fontSize: 10, fontWeight: 700, color: '#f43f5e' }}>{score}%</span>
-      </div>
-    </div>
-  );
+    const r = 20, circ = 2 * Math.PI * r;
+    const offset = circ - (score / 100) * circ;
+    return (
+        <div className="relative flex-shrink-0" style={{ width: 48, height: 48 }}>
+            <svg className="absolute inset-0" style={{ transform: 'rotate(-90deg)' }} width="48" height="48" viewBox="0 0 48 48">
+                <defs>
+                    <linearGradient id="ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#fb7185" />
+                        <stop offset="100%" stopColor="#f43f5e" />
+                    </linearGradient>
+                </defs>
+                <circle cx="24" cy="24" r={r} fill="none" stroke="#fce7f3" strokeWidth="4" />
+                <circle cx="24" cy="24" r={r} fill="none" stroke="url(#ring-grad)" strokeWidth="4"
+                    strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
+                    style={{ transition: 'stroke-dashoffset 1.2s ease' }} />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center">
+                <span style={{ fontSize: 10, fontWeight: 700, color: '#f43f5e' }}>{score}%</span>
+            </div>
+        </div>
+    );
 };
 
 /* ─── Photo placeholder ─── */
 const PhotoPlaceholder = ({ initial = '?', gradient = 'linear-gradient(135deg,#fce7f3,#fdf4ff,#ede9fe)' }) => (
-  <div className="w-full h-full flex items-center justify-center" style={{ background: gradient }}>
-    <span style={{ fontSize: 52, fontWeight: 700, color: '#f9a8d4', opacity: 0.8 }}>{initial}</span>
-  </div>
+    <div className="w-full h-full flex items-center justify-center" style={{ background: gradient }}>
+        <span style={{ fontSize: 52, fontWeight: 700, color: '#f9a8d4', opacity: 0.8 }}>{initial}</span>
+    </div>
 );
+
+/* ─── Distance Calculation ─── */
+const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
+    if (!lat1 || !lon1 || !lat2 || !lon2) return null;
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return Math.round(R * c);
+};
 
 /* ════════════════════════════════════════
    Discover Page
 ════════════════════════════════════════ */
 const Discover = () => {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const { user } = useAuthStore();
+    const navigate = useNavigate();
+    const location = useLocation();
+    const { user } = useAuthStore();
 
-  const [profiles, setProfiles] = useState([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [selectedPhoto, setSelectedPhoto] = useState(0);
-  const [likeFlash, setLikeFlash] = useState(false);
-  const [passFlash, setPassFlash] = useState(false);
-  const [superFlash, setSuperFlash] = useState(false);
-  const [superAnimation, setSuperAnimation] = useState(false);
+    const [fetchedProfiles, setFetchedProfiles] = useState([]);
+    const [profiles, setProfiles] = useState([]);
+    const [currentIndex, setCurrentIndex] = useState(0);
+    const [loading, setLoading] = useState(true);
+    const [actionLoading, setActionLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [selectedPhoto, setSelectedPhoto] = useState(0);
+    const [likeFlash, setLikeFlash] = useState(false);
+    const [passFlash, setPassFlash] = useState(false);
+    const [superFlash, setSuperFlash] = useState(false);
+    const [superAnimation, setSuperAnimation] = useState(false);
+    const [showProfileDetail, setShowProfileDetail] = useState(false);
 
-  const fetchProfiles = useCallback(async (forceRefresh = false) => {
-    try {
-      setLoading(true);
-      setProfiles([]);
-      setCurrentIndex(0);
+    // Touch/Swipe detection
+    const touchStartX = useRef(0);
+    const touchEndX = useRef(0);
+    const cardRef = useRef(null);
 
-      const res = await userService.getRecommendedUsers(forceRefresh);
+    // Filters state
+    const [showFilterModal, setShowFilterModal] = useState(false);
+    const [filters, setFilters] = useState(() => {
+        // Fallback for user._id since it might be null initially
+        const userId = JSON.parse(localStorage.getItem('user') || '{}')._id;
+        const saved = localStorage.getItem(`discover_filters_${userId}`);
+        return saved ? JSON.parse(saved) : { minAge: 18, maxAge: 100, gender: 'both', maxDistance: 25, interests: [] };
+    });
 
-      const newProfiles = res?.users || res?.data?.users || res?.data || [];
+    useEffect(() => {
+        const handleOpenFilter = () => setShowFilterModal(true);
+        window.addEventListener('openFilterModal', handleOpenFilter);
+        return () => window.removeEventListener('openFilterModal', handleOpenFilter);
+    }, []);
 
-      if (!Array.isArray(newProfiles)) {
-        setProfiles([]);
-      } else {
-        setProfiles(newProfiles);
-      }
+    const fetchProfiles = useCallback(async (forceRefresh = false) => {
+        try {
+            setLoading(true);
+            setFetchedProfiles([]);
+            setProfiles([]);
+            setCurrentIndex(0);
 
-      setError('');
-    } catch (err) {
-      setError('Không thể tải hồ sơ. Vui lòng thử lại.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+            const res = await userService.getRecommendedUsers(forceRefresh);
 
-  useEffect(() => {
-    fetchProfiles();
-  }, [location.pathname, fetchProfiles]);
+            const newProfiles = res?.users || res?.data?.users || res?.data || [];
 
-  useEffect(() => { setSelectedPhoto(0); }, [currentIndex]);
+            if (!Array.isArray(newProfiles)) {
+                setFetchedProfiles([]);
+            } else {
+                // Lọc bỏ tài khoản của chính user đang đăng nhập
+                let f = newProfiles.filter(p => p.id !== user?._id && p.id !== user?.id && p._id !== user?._id);
 
-  const cp = profiles[currentIndex]; // current profile
+                // --- TÍCH HỢP AI MATCHMAKING ---
+                try {
+                    const aiRes = await aiMatchService.getSmartMatches(
+                        user?._id,
+                        filters.gender || user?.preferences?.gender || 'both',
+                        filters,
+                        user?.location?.coordinates ? { lat: user.location.coordinates[1], lng: user.location.coordinates[0] } : null
+                    );
 
-  const handleLike = async () => {
-    if (actionLoading || !cp) return;
-    setLikeFlash(true); setTimeout(() => setLikeFlash(false), 420);
-    setActionLoading(true);
-    try {
-      const res = await matchService.likeUser(cp._id);
-      
-      const isMatch = res?.matched || res?.isMatch;
-      const conversationId = res?.conversationId || res?.matchId;
-      
-      if (isMatch && conversationId) {
-        navigate(`/messages/${conversationId}`);
-        return;
-      }
-      
-      setCurrentIndex(i => i + 1);
-    } catch (err) {
-      setCurrentIndex(i => i + 1);
-    }
-    finally { setActionLoading(false); }
-  };
+                    // ĐÃ SỬA: Lấy mảng data trả về (phụ thuộc cách backend bọc dữ liệu)
+                    const aiMatches = aiRes?.data || aiRes?.matches || []; 
+                    
+                    if (aiMatches.length > 0) {
+                        const aiScores = {};
+                        aiMatches.forEach(m => {
+                            // ĐÃ SỬA: Lấy trực tiếp trường match_percentage mà Python trả về
+                            aiScores[m.user_id] = m.match_percentage || m.score || m.similarity || 0; 
+                        });
 
-  const handlePass = async () => {
-    if (actionLoading || !cp) return;
-    setPassFlash(true); setTimeout(() => setPassFlash(false), 420);
-    setActionLoading(true);
-    try {
-      await matchService.passUser(cp._id);
-      setCurrentIndex(i => i + 1);
-    } catch (err) {
-      setCurrentIndex(i => i + 1);
-    }
-    finally { setActionLoading(false); }
-  };
+                        f = f.map(p => {
+                            // ĐÃ SỬA: Dùng trực tiếp chuỗi ID nguyên bản, không parseInt nữa!
+                            const idStr = (p.id || p._id).toString(); 
+                            return { ...p, aiScore: aiScores[idStr] || 0 };
+                        });
 
-  const handleSuperLike = async () => {
-    if (actionLoading || !cp) return;
-    setSuperFlash(true);
-    setSuperAnimation(true);
-    setActionLoading(true);
-    
-    try {
-      const res = await matchService.superLikeUser(cp._id);
-      
-      setTimeout(() => setSuperAnimation(false), 2000);
-      
-      if (res?.matched || res?.isSuperMatch) {
-        const conversationId = res?.match?._id || res?.matchId;
-        setTimeout(() => {
-          if (conversationId) {
-            navigate(`/messages/${conversationId}`);
-          }
-        }, 1500);
-        return;
-      }
-      
-      setTimeout(() => {
-        setCurrentIndex(i => i + 1);
-      }, 1500);
-    } catch (err) {
-      setTimeout(() => setSuperAnimation(false), 2000);
-      setTimeout(() => setCurrentIndex(i => i + 1), 1500);
-    }
-    finally {
-      setActionLoading(false);
-      setTimeout(() => setSuperFlash(false), 420);
-    }
-  };
-
-  const getPhotos = (p) => {
-    if (!p) return [];
-    const arr = p.avatar ? [p.avatar] : [];
-    if (p.photos) arr.push(...p.photos.filter(x => x !== p.avatar));
-    return arr.slice(0, 4);
-  };
-
-  /* ── Shared tokens ── */
-  const BG_PAGE = 'linear-gradient(160deg, #fff8fa 0%, #fdf4ff 55%, #f5f3ff 100%)';
-  const CARD_STYLE = { background: '#ffffff', borderRadius: 16, border: '1px solid #fce7f3' };
-  const SHADOW_SM = '0 2px 12px rgba(244,63,94,0.06)';
-
-  /* ── STATES ── */
-  if (loading) return (
-    <div className="min-h-screen flex flex-col" style={{ background: BG_PAGE }}>
-      <Navbar />
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center space-y-3">
-          <div className="w-10 h-10 rounded-full border-4 border-pink-200 border-t-rose-400 animate-spin mx-auto" />
-          <p style={{ fontSize: 13, color: '#f9a8d4', fontWeight: 500 }}>Đang tìm người phù hợp…</p>
-        </div>
-      </div>
-    </div>
-  );
-
-  if (error) return (
-    <div className="min-h-screen flex flex-col" style={{ background: BG_PAGE }}>
-      <Navbar />
-      <div className="flex-1 flex items-center justify-center p-4">
-        <div style={{ ...CARD_STYLE, padding: 32, textAlign: 'center', maxWidth: 320, boxShadow: SHADOW_SM }}>
-          <div style={{ fontSize: 36, marginBottom: 12 }}>😢</div>
-          <p style={{ fontSize: 13, color: '#f87171', marginBottom: 16 }}>{error}</p>
-          <button onClick={fetchProfiles}
-            style={{ background: 'linear-gradient(135deg,#fb7185,#f43f5e)', color: '#fff', borderRadius: 24, padding: '8px 24px', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer' }}>
-            Thử lại
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  if (!cp) return (
-    <div className="min-h-screen flex flex-col" style={{ background: BG_PAGE }}>
-      <Navbar />
-      <div className="flex-1 flex items-center justify-center p-4">
-        <div style={{ ...CARD_STYLE, padding: 40, textAlign: 'center', maxWidth: 320, boxShadow: SHADOW_SM }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>💝</div>
-          <h3 style={{ fontSize: 18, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Hết hồ sơ rồi!</h3>
-          <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 24 }}>Hãy quay lại sau để khám phá thêm 💕</p>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-            <button onClick={() => fetchProfiles(true)}
-              style={{ background: 'linear-gradient(135deg,#fb7185,#f43f5e)', color: '#fff', borderRadius: 24, padding: '8px 20px', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer', boxShadow: '0 4px 14px rgba(244,63,94,0.3)' }}>
-              Tải lại
-            </button>
-            <Link to="/messages"
-              style={{ background: '#fff0f6', color: '#f43f5e', borderRadius: 24, padding: '8px 20px', fontSize: 12, fontWeight: 600, border: '1px solid #fce7f3', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
-              Tin nhắn
-            </Link>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const photos = getPhotos(cp);
-  const mainSrc = photos[selectedPhoto] || null;
-  const side = photos.filter((_, i) => i !== selectedPhoto).slice(0, 2);
-  const initial = ((cp.fullName || cp.username) ?? '?').charAt(0).toUpperCase();
-
-  const aiItems = [
-    { icon: '🎯', bg: '#fce7f3', title: 'Tính cách tương đồng', desc: 'Cả hai đều hướng nội, đề cao sự chân thành trong quan hệ lâu dài.' },
-    { icon: '🎁', bg: '#fef3c7', title: 'Sở thích giao thoa', desc: 'Đam mê du lịch & thiết kế sáng tạo — chủ đề mở đầu tuyệt vời.' },
-    { icon: '📈', bg: '#ede9fe', title: 'Dự đoán kết nối', desc: 'Khả năng cao có buổi hẹn hò chất lượng tại quán cà phê yên tĩnh.' },
-  ];
-
-  /* ════ MAIN RENDER ════ */
-  return (
-    <div style={{ minHeight: '100vh', background: BG_PAGE, display: 'flex', flexDirection: 'column' }}>
-      <Navbar />
-
-      {/* ── Scrollable content area with room at bottom ── */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px 40px' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-
-          {/* ════ 3-COLUMN GRID ════ */}
-          <div style={{ display: 'grid', gridTemplateColumns: '5fr 3.5fr 5.5fr', gap: 16, alignItems: 'start' }}>
-
-            {/* ╔══════════════════════════╗
-                ║  LEFT — Photo + Info     ║
-                ╚══════════════════════════╝ */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-
-              {/* Main photo */}
-              <div style={{ borderRadius: 18, overflow: 'hidden', height: 290, position: 'relative', boxShadow: '0 4px 20px rgba(244,63,94,0.10)', flexShrink: 0 }}>
-                {mainSrc
-                  ? <img src={mainSrc} alt={cp.fullName || cp.username}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top', display: 'block' }} />
-                  : <PhotoPlaceholder initial={initial} />
+                        // Sắp xếp theo điểm AI (từ cao xuống thấp)
+                        f.sort((a, b) => (b.aiScore || 0) - (a.aiScore || 0));
+                    }
+                } catch (e) {
+                    console.log("AI Matchmaking Error:", e);
                 }
 
-                {/* Photo dots */}
-                {photos.length > 1 && (
-                  <div style={{ position: 'absolute', top: 10, left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: 5 }}>
-                    {photos.map((_, i) => (
-                      <button key={i} onClick={() => setSelectedPhoto(i)}
-                        style={{
-                          height: 4, borderRadius: 4, border: 'none', cursor: 'pointer', padding: 0,
-                          width: i === selectedPhoto ? 20 : 10,
-                          background: i === selectedPhoto ? '#fff' : 'rgba(255,255,255,0.5)',
-                          transition: 'all .25s'
-                        }} />
-                    ))}
-                  </div>
-                )}
+                setFetchedProfiles(f);
+            }
 
-                {/* Online badge */}
-                {cp.isOnline && (
-                  <div style={{ position: 'absolute', bottom: 12, left: 12 }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(255,255,255,0.92)', borderRadius: 20, padding: '4px 10px', fontSize: 10, fontWeight: 600, color: '#6b7280' }}>
-                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#34d399', display: 'block' }} />
-                      TRỰC TUYẾN
-                    </span>
-                  </div>
-                )}
-              </div>
+            setError('');
+        } catch (err) {
+            setError('Không thể tải hồ sơ. Vui lòng thử lại.');
+        } finally {
+            setLoading(false);
+        }
+    }, [user?._id, user?.id]);
 
-              {/* Profile Info card */}
-              <div style={{ ...CARD_STYLE, padding: '14px 16px', boxShadow: SHADOW_SM }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <div>
-                    <h1 style={{ fontSize: 20, fontWeight: 700, color: '#111827', lineHeight: 1.2, margin: 0 }}>
-                      {cp.fullName || cp.username}
-                      {cp.age && <span style={{ fontWeight: 400, color: '#9ca3af' }}>, {cp.age}</span>}
-                    </h1>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
-                      {cp.isVerifiedProfile && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: '#f43f5e' }}>
-                          <svg width="13" height="13" fill="#f43f5e" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                          </svg>
-                          AI xác thực
-                        </span>
-                      )}
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#9ca3af' }}>
-                        <svg width="11" height="11" fill="#fb7185" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
-                        </svg>
-                        Cách bạn 2km
-                      </span>
-                    </div>
-                  </div>
-                  <button style={{ width: 30, height: 30, borderRadius: '50%', border: 'none', background: '#fdf2f8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
-                    <svg width="14" height="14" fill="#f9a8d4" viewBox="0 0 20 20">
-                      <path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zM12 10a2 2 0 11-4 0 2 2 0 014 0zM16 12a2 2 0 100-4 2 2 0 000 4z" />
-                    </svg>
-                  </button>
-                </div>
+    useEffect(() => {
+        let result = [...fetchedProfiles];
 
-                {/* Bio */}
-                {cp.bio && (
-                  <div style={{ borderTop: '1px solid #fef2f8', paddingTop: 10 }}>
-                    <p style={{ fontSize: 11, fontWeight: 700, color: '#f43f5e', marginBottom: 4 }}>Giới thiệu</p>
-                    <p style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.6, WebkitLineClamp: 2, display: '-webkit-box', WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{cp.bio}</p>
-                  </div>
-                )}
+        // Age filter
+        if (filters.minAge) result = result.filter(p => p.age >= filters.minAge);
+        if (filters.maxAge) result = result.filter(p => p.age <= filters.maxAge);
 
-                {/* Interests */}
-                {cp.interests?.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-                    {cp.interests.slice(0, 5).map((t, i) => (
-                      <span key={i} style={{ padding: '4px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, background: '#fdf2f8', color: '#e879a0', border: '1px solid #fce7f3' }}>
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+        // Gender filter
+        if (filters.gender && filters.gender !== 'both') {
+            result = result.filter(p => p.gender === filters.gender);
+        }
 
-            {/* ╔════════════════════════════╗
-                ║  MIDDLE — Thumbnails + CTA ║
-                ╚════════════════════════════╝ */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        // Interests filter
+        if (filters.interests?.length > 0) {
+            result = result.filter(p => {
+                if (!p.interests || p.interests.length === 0) return false;
+                return filters.interests.some(i => p.interests.includes(i));
+            });
+        }
 
-              {/* Thumb 1 */}
-              <div
-                onClick={() => side[0] && setSelectedPhoto(photos.indexOf(side[0]))}
-                style={{
-                  borderRadius: 16, overflow: 'hidden', height: 138, cursor: side[0] ? 'pointer' : 'default',
-                  background: 'linear-gradient(135deg,#fce7f3,#fdf4ff)', boxShadow: SHADOW_SM, flexShrink: 0
-                }}
-              >
-                {side[0]
-                  ? <img src={side[0]} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top', transition: 'transform .3s', display: 'block' }}
-                    onMouseEnter={e => e.target.style.transform = 'scale(1.04)'}
-                    onMouseLeave={e => e.target.style.transform = 'scale(1)'} />
-                  : <div className="w-full h-full flex items-center justify-center">
-                    <svg width="28" height="28" fill="none" stroke="#f9a8d4" strokeWidth="1.5" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                  </div>
-                }
-              </div>
+        // Distance filter
+        let userLat = user?.location?.coordinates?.[1];
+        let userLon = user?.location?.coordinates?.[0];
+        // Ensure not default [0,0]
+        if (userLat === 0 && userLon === 0) {
+            userLat = null; userLon = null;
+        }
 
-              {/* Thumb 2 */}
-              <div
-                onClick={() => side[1] && setSelectedPhoto(photos.indexOf(side[1]))}
-                style={{
-                  borderRadius: 16, overflow: 'hidden', height: 138, cursor: side[1] ? 'pointer' : 'default',
-                  background: 'linear-gradient(135deg,#ede9fe,#fdf4ff)', boxShadow: SHADOW_SM, flexShrink: 0
-                }}
-              >
-                {side[1]
-                  ? <img src={side[1]} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top', transition: 'transform .3s', display: 'block' }}
-                    onMouseEnter={e => e.target.style.transform = 'scale(1.04)'}
-                    onMouseLeave={e => e.target.style.transform = 'scale(1)'} />
-                  : <div className="w-full h-full flex items-center justify-center">
-                    <svg width="28" height="28" fill="none" stroke="#c4b5fd" strokeWidth="1.5" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                  </div>
-                }
-              </div>
+        // Always calculate distance if user has location
+        result.forEach(p => {
+            let pLat = p.location?.coordinates?.[1];
+            let pLon = p.location?.coordinates?.[0];
+            if (userLat && userLon && pLat && pLon && !(pLat === 0 && pLon === 0)) {
+                p.distanceKm = getDistanceFromLatLonInKm(userLat, userLon, pLat, pLon);
+            } else {
+                p.distanceKm = null;
+            }
+        });
+        // push
+        if (filters.maxDistance && userLat && userLon) {
+            result = result.filter(p => p.distanceKm === null || p.distanceKm <= filters.maxDistance);
+        }
 
-              {/* ★ ACTION CARD ★ */}
-              <div style={{
-                borderRadius: 20, padding: '16px 12px', flexShrink: 0,
-                background: 'linear-gradient(145deg,#fff0f6 0%,#fdf4ff 55%,#f5f3ff 100%)',
-                border: '2px solid #fb7185',
-                boxShadow: '0 6px 28px rgba(244,63,94,0.18), 0 0 0 4px rgba(251,113,133,0.10)',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10
-              }}>
-                <p style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.08em', color: '#e11d48', textTransform: 'uppercase', margin: 0 }}>
-                  💕 Bạn có thích không?
-                </p>
+        // Sorting by matching score (shared interests) if AI score is not available
+        result.sort((a, b) => {
+            if (a.aiScore !== undefined && b.aiScore !== undefined) {
+                return b.aiScore - a.aiScore;
+            }
+            const aShared = a.interests?.filter(i => user?.interests?.includes(i) || filters.interests?.includes(i)).length || 0;
+            const bShared = b.interests?.filter(i => user?.interests?.includes(i) || filters.interests?.includes(i)).length || 0;
+            return bShared - aShared;
+        });
 
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, width: '100%' }}>
+        setProfiles(result);
+        setCurrentIndex(0);
+    }, [fetchedProfiles, filters, user]);
 
-                  {/* PASS */}
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
-                    <button onClick={handlePass} disabled={actionLoading}
-                      style={{
-                        width: 46, height: 46, borderRadius: '50%', border: '2px solid',
-                        borderColor: passFlash ? '#ef4444' : '#fca5a5',
-                        background: passFlash ? 'linear-gradient(135deg,#fca5a5,#ef4444)' : '#fff',
-                        boxShadow: passFlash ? '0 6px 18px rgba(239,68,68,0.35)' : '0 3px 12px rgba(252,165,165,0.25)',
-                        cursor: actionLoading ? 'not-allowed' : 'pointer',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        transform: passFlash ? 'scale(0.9)' : 'scale(1)',
-                        transition: 'all .2s', opacity: actionLoading ? 0.4 : 1
-                      }}
-                      onMouseEnter={e => { if (!passFlash) { e.currentTarget.style.transform = 'scale(1.12)'; e.currentTarget.style.boxShadow = '0 6px 18px rgba(252,165,165,0.45)'; } }}
-                      onMouseLeave={e => { if (!passFlash) { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 3px 12px rgba(252,165,165,0.25)'; } }}
-                    >
-                      <svg width="18" height="18" fill="none" stroke={passFlash ? '#fff' : '#f87171'} strokeWidth="2.5" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                    <span style={{ fontSize: 9, fontWeight: 600, color: '#f87171' }}>Bỏ qua</span>
-                  </div>
+    useEffect(() => {
+        fetchProfiles();
+    }, [location.pathname, fetchProfiles]);
 
-                  {/* LIKE */}
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
-                    <button onClick={handleLike} disabled={actionLoading}
-                      style={{
-                        width: 62, height: 62, borderRadius: '50%', border: 'none',
-                        background: 'linear-gradient(135deg,#fb7185,#f43f5e)',
-                        boxShadow: likeFlash
-                          ? '0 8px 28px rgba(244,63,94,0.55), 0 0 0 10px rgba(244,63,94,0.12)'
-                          : '0 6px 22px rgba(244,63,94,0.38), 0 0 0 5px rgba(244,63,94,0.08)',
-                        cursor: actionLoading ? 'not-allowed' : 'pointer',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        transform: likeFlash ? 'scale(1.16)' : 'scale(1)',
-                        transition: 'all .2s', opacity: actionLoading ? 0.4 : 1, position: 'relative', overflow: 'visible'
-                      }}
-                      onMouseEnter={e => { if (!likeFlash) { e.currentTarget.style.transform = 'scale(1.10)'; e.currentTarget.style.boxShadow = '0 10px 28px rgba(244,63,94,0.50), 0 0 0 10px rgba(244,63,94,0.12)'; } }}
-                      onMouseLeave={e => { if (!likeFlash) { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 6px 22px rgba(244,63,94,0.38), 0 0 0 5px rgba(244,63,94,0.08)'; } }}
-                    >
-                      <svg width="28" height="28" fill="#fff" viewBox="0 0 24 24">
-                        <path d="M12 21.593c-5.63-5.539-11-10.297-11-14.402 0-3.791 3.068-5.191 5.281-5.191 1.312 0 4.151.501 5.719 4.457 1.59-3.968 4.464-4.447 5.726-4.447 2.54 0 5.274 1.621 5.274 5.181 0 4.069-5.136 8.625-11 14.402z" />
-                      </svg>
-                    </button>
-                    <span style={{ fontSize: 9, fontWeight: 700, color: '#f43f5e' }}>Thích ❤️</span>
-                  </div>
+    useEffect(() => { setSelectedPhoto(0); }, [currentIndex]);
 
-                  {/* SUPER LIKE */}
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
-                    <button 
-                      onClick={handleSuperLike}
-                      disabled={actionLoading}
-                      style={{
-                        width: 46, height: 46, borderRadius: '50%', border: '2px solid',
-                        borderColor: superFlash ? '#fbbf24' : '#fcd34d',
-                        background: superFlash ? 'linear-gradient(135deg,#fef9c3,#fde68a)' : '#fff',
-                        boxShadow: superFlash ? '0 6px 18px rgba(251,191,36,0.45)' : '0 3px 12px rgba(251,191,36,0.22)',
-                        cursor: actionLoading ? 'not-allowed' : 'pointer',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        transition: 'all .2s', opacity: actionLoading ? 0.4 : 1,
-                        transform: superFlash ? 'scale(1.15)' : 'scale(1)'
-                      }}
-                      onMouseEnter={e => { if (!superFlash && !actionLoading) { e.currentTarget.style.transform = 'scale(1.12)'; e.currentTarget.style.background = 'linear-gradient(135deg,#fef9c3,#fde68a)'; e.currentTarget.style.boxShadow = '0 6px 18px rgba(251,191,36,0.45)'; } }}
-                      onMouseLeave={e => { if (!superFlash) { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.background = '#fff'; e.currentTarget.style.boxShadow = '0 3px 12px rgba(251,191,36,0.22)'; } }}
-                    >
-                      <svg width="18" height="18" fill={superFlash ? '#f59e0b' : '#fbbf24'} viewBox="0 0 24 24">
-                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                      </svg>
-                    </button>
-                    <span style={{ fontSize: 9, fontWeight: 600, color: '#f59e0b' }}>Super ⭐</span>
-                  </div>
+    const cp = profiles[currentIndex]; // current profile
 
-                </div>
-              </div>
-            </div>
+    const handleLike = useCallback(async () => {
+        if (!user?.isVerifiedProfile) {
+            alert('Tài khoản chưa xác thực, vui lòng xác thực trước.');
+            return;
+        }
+        if (actionLoading || !cp) return;
+        setLikeFlash(true); setTimeout(() => setLikeFlash(false), 420);
+        setActionLoading(true);
+        try {
+            const res = await matchService.likeUser(cp.id || cp._id);
 
-            {/* ╔══════════════════════════╗
-                ║  RIGHT — AI + Info cards ║
-                ╚══════════════════════════╝ */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            // --- BẮN SIGNAL CHO AI ĐỂ HỌC TĂNG CƯỜNG (Reinforcement Learning) ---
+            try {
+                await aiMatchService.sendLikeSignal(user._id, cp.id || cp._id);
+            } catch (e) {
+                console.log('AI Learning Signal Error:', e);
+            }
 
-              {/* AI Analysis */}
-              <div style={{ ...CARD_STYLE, padding: '16px 18px', boxShadow: SHADOW_SM }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ color: '#f43f5e', fontSize: 15, lineHeight: 1 }}>✦</span>
-                    <h2 style={{ fontSize: 14, fontWeight: 700, color: '#111827', margin: 0 }}>Phân tích AI</h2>
-                  </div>
-                  <AIScoreRing score={85} />
-                </div>
+            const isMatch = res?.matched || res?.isMatch;
+            const conversationId = res?.conversationId || res?.matchId;
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {aiItems.map((item, i) => (
-                    <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                      <div style={{ width: 30, height: 30, borderRadius: '50%', background: item.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, flexShrink: 0 }}>
-                        {item.icon}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ fontSize: 11, fontWeight: 700, color: '#374151', margin: '0 0 3px' }}>{item.title}</p>
-                        <p style={{ fontSize: 10, color: '#9ca3af', lineHeight: 1.55, margin: 0 }}>{item.desc}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+            if (isMatch && conversationId) {
+                navigate('/messages', { state: { matchId: conversationId } });
+                return;
+            }
 
-                <p style={{ textAlign: 'center', fontSize: 9, color: '#d1d5db', marginTop: 14, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
-                  Phân tích bởi LoveAI v2.0
-                </p>
-              </div>
+            setCurrentIndex(i => i + 1);
+        } catch (err) {
+            setCurrentIndex(i => i + 1);
+        }
+        finally { setActionLoading(false); }
+    }, [actionLoading, cp, navigate]);
 
-              {/* Nearby card */}
-              <div style={{ ...CARD_STYLE, overflow: 'hidden', boxShadow: SHADOW_SM }}>
-                <div style={{ position: 'relative', height: 80 }}>
-                  {cp.avatar
-                    ? <img src={cp.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'grayscale(1)', opacity: 0.45, display: 'block' }} />
-                    : <div style={{ width: '100%', height: '100%', background: 'linear-gradient(135deg,#fce7f3,#ede9fe)' }} />
-                  }
-                  <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg,rgba(244,63,94,0.08),rgba(167,139,250,0.08))' }} />
-                  <div style={{ position: 'absolute', bottom: 10, left: 12 }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(255,255,255,0.92)', borderRadius: 20, padding: '4px 10px', fontSize: 10, fontWeight: 600, color: '#6b7280' }}>
-                      <svg width="10" height="10" fill="#f43f5e" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
-                      </svg>
-                      Cách bạn 2km (Quận 1)
-                    </span>
-                  </div>
-                </div>
-              </div>
+    const handlePass = useCallback(async () => {
+        if (actionLoading || !cp) return;
+        setPassFlash(true); setTimeout(() => setPassFlash(false), 420);
+        setActionLoading(true);
+        try {
+            await matchService.passUser(cp.id || cp._id);
+            try {
+                await aiMatchService.sendPassSignal(user._id, cp.id || cp._id);
+            } catch (e) {
+                console.log('AI Learning Signal Error (Pass):', e);
+            }
 
-              {/* Safety tip */}
-              <div style={{ borderRadius: 16, padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'flex-start', background: 'linear-gradient(135deg,#fff0f6,#fdf2ff)', border: '1.5px solid #fce7f3', boxShadow: '0 2px 10px rgba(244,63,94,0.07)' }}>
-                <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'linear-gradient(135deg,#fce7f3,#ede9fe)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <svg width="14" height="14" fill="none" stroke="#f43f5e" strokeWidth="2" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                  </svg>
-                </div>
-                <div>
-                  <p style={{ fontSize: 11, fontWeight: 700, color: '#e11d48', margin: '0 0 3px' }}>🛡️ An toàn khi hẹn hò</p>
-                  <p style={{ fontSize: 10, color: '#9d4c6e', lineHeight: 1.6, margin: 0 }}>
-                    Luôn trò chuyện qua ứng dụng trước khi quyết định gặp mặt trực tiếp.{' '}
-                    <button style={{ color: '#f43f5e', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline', fontSize: 10, fontWeight: 600 }}>
-                      Tìm hiểu thêm
-                    </button>
-                  </p>
-                </div>
-              </div>
+            setCurrentIndex(i => i + 1);
+        } catch (err) {
+            setCurrentIndex(i => i + 1);
+        }
+        finally { setActionLoading(false); }
+    }, [actionLoading, cp, user]); // Nhớ thêm 'user' vào mảng dependency này
 
-              {/* Lifestyle chips */}
-              {(cp.occupation || cp.education || cp.height) && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {cp.occupation && (
-                    <span style={{ padding: '5px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, background: '#fff0f6', color: '#e879a0', border: '1px solid #fce7f3' }}>💼 {cp.occupation}</span>
-                  )}
-                  {cp.education && (
-                    <span style={{ padding: '5px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, background: '#eff6ff', color: '#60a5fa', border: '1px solid #dbeafe' }}>🎓 {cp.education}</span>
-                  )}
-                  {cp.height && (
-                    <span style={{ padding: '5px 12px', borderRadius: 20, fontSize: 10, fontWeight: 600, background: '#f0fdf4', color: '#4ade80', border: '1px solid #bbf7d0' }}>📏 {cp.height}cm</span>
-                  )}
-                </div>
-              )}
+    const handleSuperLike = useCallback(async () => {
+        if (!user?.isVerifiedProfile) {
+            alert('Tài khoản chưa xác thực, vui lòng xác thực trước.');
+            return;
+        }
+        if (actionLoading || !cp) return;
+        setSuperFlash(true);
+        setSuperAnimation(true);
+        setActionLoading(true);
 
-            </div>{/* end right col */}
-          </div>{/* end 3-col grid */}
-        </div>{/* end max-w container */}
-      </div>{/* end scroll area */}
+        try {
+            const res = await matchService.superLikeUser(cp.id || cp._id);
 
-      {/* Super Like Animation Overlay */}
-      {superAnimation && (
-        <div 
-          style={{
-            position: 'fixed', 
-            inset: 0, 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center',
-            background: 'rgba(0,0,0,0.7)',
-            zIndex: 1000,
-            animation: 'fadeIn 0.3s ease-out'
-          }}
-        >
-          <div 
-            style={{
-              textAlign: 'center',
-              animation: 'superLikePop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)'
+            setTimeout(() => setSuperAnimation(false), 2000);
+
+            if (res?.matched || res?.isSuperMatch) {
+                const conversationId = res?.match?._id || res?.matchId;
+                setTimeout(() => {
+                    if (conversationId) {
+                        navigate('/messages', { state: { matchId: conversationId } });
+                    }
+                }, 1500);
+                return;
+            }
+
+            setTimeout(() => {
+                setCurrentIndex(i => i + 1);
+            }, 1500);
+        } catch (err) {
+            setTimeout(() => setSuperAnimation(false), 2000);
+            setTimeout(() => setCurrentIndex(i => i + 1), 1500);
+        }
+        finally {
+            setActionLoading(false);
+            setTimeout(() => setSuperFlash(false), 420);
+        }
+    }, [actionLoading, cp, navigate]);
+
+    // Touch/Swipe handler for mobile - Defined after handlePass
+    useEffect(() => {
+        const isMobile = window.innerWidth < 1024; // Only on mobile/tablet
+        if (!isMobile || !cardRef.current) return;
+
+        const handleTouchStart = (e) => {
+            touchStartX.current = e.changedTouches[0].clientX;
+        };
+
+        const handleTouchEnd = (e) => {
+            touchEndX.current = e.changedTouches[0].clientX;
+            handleSwipe();
+        };
+
+        const handleSwipe = () => {
+            const diff = touchStartX.current - touchEndX.current;
+            const minSwipeDistance = 50; // Minimum distance to trigger swipe
+
+            if (Math.abs(diff) < minSwipeDistance) return; // Not a significant swipe
+
+            if (diff > 0) {
+                // Swipe left - pass user (X button)
+                if (!actionLoading) handlePass();
+            }
+            // Swipe right is not mapped to any action to avoid accidental likes
+        };
+
+        const element = cardRef.current;
+        element.addEventListener('touchstart', handleTouchStart);
+        element.addEventListener('touchend', handleTouchEnd);
+
+        return () => {
+            element.removeEventListener('touchstart', handleTouchStart);
+            element.removeEventListener('touchend', handleTouchEnd);
+        };
+    }, [actionLoading, handlePass]);
+
+    const getPhotos = (p) => {
+        if (!p) return [];
+        const arr = p.avatar ? [p.avatar] : [];
+        if (p.photos) arr.push(...p.photos.filter(x => x !== p.avatar));
+        return arr.slice(0, 4);
+    };
+
+    /* ── Shared tokens ── */
+    const CARD_STYLE = { background: '#ffffff', borderRadius: 16, border: '1px solid #fce7f3' };
+    const SHADOW_SM = '0 2px 12px rgba(244,63,94,0.06)';
+
+    /* ── STATES ── */
+    const renderFilterModal = () => (
+        <FilterModal
+            isOpen={showFilterModal}
+            onClose={() => setShowFilterModal(false)}
+            initialFilters={filters}
+            onApply={(newFilters) => {
+                setFilters(newFilters);
+                localStorage.setItem(`discover_filters_${user?._id}`, JSON.stringify(newFilters));
             }}
-          >
-            <div style={{ fontSize: 80, marginBottom: 16 }}>
-              ⭐
-            </div>
-            <h2 style={{ 
-              fontSize: 28, 
-              fontWeight: 800, 
-              color: '#fff',
-              textShadow: '0 0 30px rgba(251,191,36,0.8)',
-              marginBottom: 8
-            }}>
-              SUPER LIKE!
-            </h2>
-            <p style={{ 
-              fontSize: 14, 
-              color: '#fbbf24',
-              fontWeight: 500
-            }}>
-              Bạn đã gửi Super Like cho {cp?.fullName || cp?.username}
-            </p>
-          </div>
-        </div>
-      )}
+        />
+    );
 
-      {/* CSS Animations */}
-      <style>{`
+    if (loading) return (
+        <div className="min-h-screen bg-[#FCF9F9] flex flex-col">
+            <Navbar />
+            <div className="flex-1 flex items-center justify-center flex-col p-4">
+                <div className="text-center space-y-3">
+                    <div className="w-10 h-10 rounded-full border-4 border-pink-200 border-t-rose-400 animate-spin mx-auto" />
+                    <p className="text-sm font-medium text-pink-400">Đang tìm người phù hợp…</p>
+                </div>
+            </div>
+            {renderFilterModal()}
+        </div>
+    );
+
+    if (error) return (
+        <div className="min-h-screen bg-[#FCF9F9] flex flex-col">
+            <Navbar />
+            <div className="flex-1 flex flex-col items-center justify-center p-4">
+                <div className="bg-white rounded-[1rem] p-8 text-center max-w-sm shadow-sm border border-gray-100">
+                    <div className="text-4xl mb-3">😢</div>
+                    <p className="text-sm text-red-400 mb-4">{error}</p>
+                    <button onClick={() => fetchProfiles(true)} className="bg-gradient-to-r from-rose-400 to-rose-500 text-white rounded-full px-6 py-2 text-sm font-bold shadow-md hover:from-rose-500 hover:to-rose-600">
+                        Thử lại
+                    </button>
+                </div>
+            </div>
+            {renderFilterModal()}
+        </div>
+    );
+
+    if (!cp) return (
+        <div className="min-h-screen bg-[#FCF9F9] flex flex-col">
+            <Navbar />
+            <div className="flex-1 flex flex-col items-center justify-center p-4">
+                <div className="bg-white rounded-[1.5rem] p-10 text-center max-w-sm shadow-[0_2px_12px_rgba(244,63,94,0.06)] border border-rose-50">
+                    <div className="text-5xl mb-3">💝</div>
+                    <h3 className="text-lg font-bold text-gray-800 mb-1.5">Hết hồ sơ rồi!</h3>
+                    <p className="text-xs text-gray-400 mb-6">Hãy quay lại sau để khám phá thêm 💕</p>
+                    <div className="flex gap-2 justify-center">
+                        <button onClick={() => fetchProfiles(true)} className="bg-gradient-to-r from-rose-400 to-rose-500 text-white rounded-full px-5 py-2 text-xs font-bold shadow-[0_4px_14px_rgba(244,63,94,0.3)]">
+                            Tải lại
+                        </button>
+                        <Link to="/messages" className="bg-rose-50 text-rose-500 border border-rose-100 rounded-full px-5 py-2 text-xs font-bold shadow-sm inline-flex items-center">
+                            Tin nhắn
+                        </Link>
+                    </div>
+                </div>
+            </div>
+            {renderFilterModal()}
+        </div>
+    );
+
+    const photos = getPhotos(cp);
+    const mainSrc = photos[selectedPhoto] || null;
+    const side = photos.filter((_, i) => i !== selectedPhoto).slice(0, 2);
+    const initial = ((cp.fullName || cp.username) ?? '?').charAt(0).toUpperCase();
+    const sharedInterests = cp.interests?.filter(i => user?.interests?.includes(i) || filters.interests?.includes(i)) || [];
+
+    // Nếu có điểm AI (0.0 -> 1.0) thì quy đổi sang %, nếu không thì dùng logic cơ bản
+    const matchScore = cp.aiScore
+        ? Math.round(cp.aiScore * 100)
+        : Math.min(100, 60 + (sharedInterests.length * 10));
+
+    const aiItems = [
+        { icon: <Icons.Target color="#f43f5e" size={16} />, bg: '#fce7f3', title: 'Tính cách tương đồng', desc: 'Cả hai đều hướng nội, đề cao sự chân thành trong quan hệ lâu dài.' },
+        { icon: <Icons.Gift color="#d97706" size={16} />, bg: '#fef3c7', title: 'Sở thích giao thoa', desc: 'Đam mê du lịch & thiết kế sáng tạo — chủ đề mở đầu tuyệt vời.' },
+        { icon: <Icons.Activity color="#7c3aed" size={16} />, bg: '#ede9fe', title: 'Dự đoán kết nối', desc: 'Khả năng cao có buổi hẹn hò chất lượng tại quán cà phê yên tĩnh.' },
+    ];
+
+    /* ════ OVERALL LAYOUT WRAPPER ════ */
+    return (
+        <div className="h-[100vh] w-screen overflow-x-hidden md:overflow-hidden flex flex-col bg-[#FCF9F9]">
+            <Navbar />
+
+            {/* ── HORIZONTAL WRAPPER ── */}
+            <div className="flex-1 flex flex-row overflow-hidden min-h-0 relative w-full md:mt-0 pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
+
+                <SidebarMenu />
+
+                {/* ── MAIN DISCOVER CONTENT ── */}
+                <main className="flex-1 overflow-y-auto md:overflow-hidden flex flex-col relative w-full min-w-0">
+
+                    {/* We use flex layout to strictly fit into the screen without scroll */}
+                    <div className="flex-1 max-w-6xl w-full mx-auto px-4 lg:px-6 py-4 lg:py-4 flex flex-col overflow-visible md:overflow-hidden min-w-0 lg:py-4 md:py-0">
+
+                        <div key={cp.id || cp._id} ref={cardRef} className="w-full md:flex-1 flex flex-col lg:flex-row gap-5 lg:gap-6 profile-card-anim min-h-0 relative lg:gap-6 md:gap-5">
+                            {/* ╔══════════════════════════╗
+                ║  MOBILE LAYOUT (< lg)    ║
+                ╚══════════════════════════╝ */}
+                            <div className="lg:hidden w-screen -mx-4 flex flex-col relative z-0" style={{ height: 'calc(100vh - 4rem - 4rem - env(safe-area-inset-bottom))' }}>
+                                {/* Full Screen Image */}
+                                <div
+                                    className="w-full h-full overflow-hidden relative cursor-pointer bg-gray-100 group px-4 py-6"
+                                    onClick={() => setShowProfileDetail(true)}
+                                >
+                                    {/* Image Container with proper aspect ratio */}
+                                    <div className="w-full h-full rounded-[2rem] overflow-hidden relative shadow-[0_8px_32px_rgba(244,63,94,0.15)]">
+                                        {photos[0] ? (
+                                            <img src={getFullImageUrl(photos[0])} alt="Main" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                                        ) : (
+                                            <PhotoPlaceholder initial={initial} />
+                                        )}
+
+                                        {/* Gradient Overlay for better text readability */}
+                                        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/30 pointer-events-none" />
+
+                                        {/* Overlay: Name & Age (Top Left) */}
+                                        <div className="absolute top-6 left-6 bg-white/95 backdrop-blur-md rounded-[1.2rem] px-4 py-2.5 z-20 shadow-xl">
+                                            <p className="text-[15px] font-black text-gray-900">
+                                                {cp.fullName || cp.username}{cp.age && <span>, {cp.age}</span>}
+                                            </p>
+                                        </div>
+
+                                        {/* Online Status (Top Right) */}
+                                        {cp.isOnline && (
+                                            <div className="absolute top-6 right-6 bg-emerald-500/90 backdrop-blur font-bold text-white text-[10px] px-3 py-1.5 rounded-full tracking-wider border border-white/20 uppercase z-10 shadow-lg">
+                                                TRỰC TUYẾN
+                                            </div>
+                                        )}
+
+                                        {/* Action Buttons (Bottom Center) */}
+                                        <div className="absolute bottom-6 left-0 right-0 flex items-center justify-center gap-4 z-20">
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); handlePass(); }} disabled={actionLoading}
+                                                className={`w-14 h-14 rounded-full bg-white border-2 border-gray-200 flex items-center justify-center hover:bg-gray-50 transition-all shadow-xl ${passFlash ? 'scale-90 opacity-50 bg-red-50' : 'hover:scale-110'}`}
+                                            >
+                                                <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                            </button>
+
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); handleLike(); }} disabled={actionLoading}
+                                                className={`w-16 h-16 rounded-full bg-[#E11D48] text-white font-bold flex items-center justify-center transition-all shadow-[0_6px_20px_rgba(225,29,72,0.4)]
+                                   ${likeFlash ? 'scale-110 shadow-[0_8px_30px_rgba(225,29,72,0.6)]' : 'hover:bg-rose-700 hover:scale-110'}`}
+                                            >
+                                                <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" /></svg>
+                                            </button>
+
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); handleSuperLike(); }} disabled={actionLoading}
+                                                className={`w-14 h-14 rounded-full bg-white border-2 border-yellow-300 flex items-center justify-center hover:bg-yellow-50 transition-all shadow-xl ${superFlash ? 'scale-110 bg-yellow-100' : 'hover:scale-110'}`}
+                                            >
+                                                <svg className="w-6 h-6 text-yellow-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" /></svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* ╔══════════════════════════╗
+                ║  DESKTOP LAYOUT (>= lg)  ║
+                ╚══════════════════════════╝ */}
+                            <div className="hidden lg:flex w-full lg:w-[60%] flex-col relative min-h-0 min-w-0 z-0">
+
+                                {/* 1) PHOTO GRID - Flexes to take available space height */}
+                                <div className="grid grid-cols-[2fr_1fr] gap-3 md:gap-4 mb-3 min-h-[260px] md:min-h-0 relative">
+                                    {/* Main Photo (Left) */}
+                                    <div
+                                        className="rounded-[2rem] overflow-hidden relative shadow-[0_4px_20px_rgba(244,63,94,0.1)] cursor-pointer bg-gray-100 h-full min-h-[250px] group"
+                                        onClick={() => setShowProfileDetail(true)}
+                                    >
+                                        {photos[0] ? (
+                                            <img src={getFullImageUrl(photos[0])} alt="Main" className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                                        ) : (
+                                            <PhotoPlaceholder initial={initial} />
+                                        )}
+                                        {/* Overlay text */}
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-center pb-6">
+                                            <span className="text-white font-bold tracking-widest text-sm uppercase bg-black/40 px-4 py-2 rounded-full backdrop-blur-sm border border-white/20 shadow-lg">
+                                                Nhấn để xem chi tiết
+                                            </span>
+                                        </div>
+                                        {cp.isOnline && (
+                                            <div className="absolute bottom-3 left-3 bg-black/45 backdrop-blur font-bold text-white text-[10px] md:text-xs px-3 py-1.5 rounded-full tracking-wider border border-white/10 uppercase z-10">
+                                                TRỰC TUYẾN
+                                            </div>
+                                        )}
+                                        {selectedPhoto === 0 && <div className="absolute inset-0 ring-4 ring-inset ring-rose-400 rounded-[2.5rem] z-20 pointer-events-none" />}
+                                    </div>
+
+                                    {/* Stacked Photos (Right) */}
+                                    <div className="flex flex-col gap-3 md:gap-4 h-full min-h-0">
+                                        <div
+                                            className="rounded-[1.5rem] overflow-hidden flex-1 relative shadow-sm cursor-pointer bg-gray-100 min-h-0"
+                                            onClick={() => photos[1] && setSelectedPhoto(1)}
+                                        >
+                                            {photos[1] ? (
+                                                <img src={getFullImageUrl(photos[1])} alt="Thumbnail 1" className="w-full h-full object-cover transition-transform duration-300 hover:scale-105" />
+                                            ) : (
+                                                <div className="w-full h-full bg-gradient-to-br from-pink-100 to-purple-50 flex items-center justify-center">
+                                                    <Icons.User size={24} color="#f9a8d4" />
+                                                </div>
+                                            )}
+                                            {selectedPhoto === 1 && <div className="absolute inset-0 ring-4 ring-inset ring-rose-400 rounded-[1.5rem] z-20 pointer-events-none" />}
+                                        </div>
+
+                                        <div
+                                            className="rounded-[1.5rem] overflow-hidden flex-1 relative shadow-sm cursor-pointer bg-gray-100 min-h-0"
+                                            onClick={() => photos[2] && setSelectedPhoto(2)}
+                                        >
+                                            {photos[2] ? (
+                                                <img src={getFullImageUrl(photos[2])} alt="Thumbnail 2" className="w-full h-full object-cover transition-transform duration-300 hover:scale-105" />
+                                            ) : (
+                                                <div className="w-full h-full bg-gradient-to-br from-indigo-50 to-pink-50 flex items-center justify-center">
+                                                    <Icons.User size={24} color="#c4b5fd" />
+                                                </div>
+                                            )}
+                                            {selectedPhoto === 2 && <div className="absolute inset-0 ring-4 ring-inset ring-rose-400 rounded-[1.5rem] z-20 pointer-events-none" />}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* 2) PROFILE HEADER & BIO - Bottom fixed constrained bounds */}
+                                <div className="flex-shrink-0 flex flex-col h-auto lg:h-[220px]">
+
+                                    {/* Header Name & Badges */}
+                                    <div className="flex items-start justify-between mb-2 lg:mb-3 px-1 flex-shrink-0">
+                                        <div className="min-w-0 pr-2">
+                                            <h1 className="text-2xl lg:text-3xl font-extrabold text-gray-900 tracking-tight leading-tight truncate">
+                                                {cp.fullName || cp.username}{cp.age && <span>, {cp.age}</span>}
+                                            </h1>
+                                            <div className="hidden lg:flex flex-wrap items-center gap-2 mt-1 text-[12px] text-gray-600 font-medium">
+                                                {cp.isVerifiedProfile && (
+                                                    <span className="flex items-center gap-1 text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full">
+                                                        <svg className="w-[14px] h-[14px]" fill="currentColor" viewBox="0 0 20 20">
+                                                            <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                                        </svg>
+                                                        Đã xác thực
+                                                    </span>
+                                                )}
+                                                {cp.distanceKm !== undefined && cp.distanceKm !== null && (
+                                                    <span className="bg-gray-100 px-2 py-0.5 rounded-full text-[11px]">Cách bạn {cp.distanceKm}km</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Bio Block with absolute Action Bar to avoid height jumps */}
+                                    <div className="bg-[#FFF5F8]/80 rounded-[1.5rem] p-4 relative shadow-[0_2px_10px_rgba(244,63,94,0.03)] border border-rose-50/50 flex-1 flex flex-col justify-between w-full min-h-[130px] lg:h-[120px] lg:mb-6">
+
+                                        <div className="overflow-hidden mb-2 relative z-10 w-full pr-4">
+                                            <p className="text-gray-700 text-[13px] leading-relaxed line-clamp-2 pr-6">
+                                                <span className="font-bold text-rose-700 mr-2 uppercase tracking-wide text-[11px]">Giới thiệu:</span>
+                                                {cp.bio || "Chưa có lời giới thiệu."}
+                                            </p>
+                                        </div>
+
+                                        {cp.interests?.length > 0 && (
+                                            <div className="flex items-center gap-1.5 overflow-x-auto md:overflow-hidden flex-nowrap w-full lg:w-[calc(100%-80px)] pb-1 shrink-0 z-10">
+                                                {cp.interests.slice(0, 3).map((t, i) => {
+                                                    const isShared = user?.interests?.includes(t) || filters.interests?.includes(t);
+                                                    const iconP = ['🎨', '🍷', '⛰️', '🎧', '📸'][i % 5];
+                                                    return (
+                                                        <span key={i} className={`flex-shrink-0 border px-2.5 py-1 rounded-full text-[11px] font-bold shadow-[0_2px_4px_rgba(0,0,0,0.02)] backdrop-blur-sm whitespace-nowrap ${isShared ? 'bg-rose-100 border-rose-200 text-rose-700' : 'bg-white/90 border-rose-50 text-gray-600'}`}>
+                                                            {iconP} {t}
+                                                        </span>
+                                                    );
+                                                })}
+                                                {cp.interests.length > 3 && (
+                                                    <span className="flex-shrink-0 text-rose-400 text-[10px] font-bold">+ {cp.interests.length - 3}</span>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* 4) FLOATING ACTION BAR - Right Overlay aligned bottom */}
+                                        <div className="mt-3 mx-auto lg:mt-0 lg:mx-0 lg:absolute lg:-bottom-2 lg:right-6 flex items-center gap-2.5 lg:gap-3 bg-white/90 backdrop-blur-xl px-3 lg:px-3 py-2 lg:py-2 rounded-[2rem] shadow-[0_4px_20px_rgba(0,0,0,0.1)] border border-rose-50 z-30">
+
+                                            <button
+                                                onClick={handlePass} disabled={actionLoading}
+                                                className={`w-11 h-11 lg:w-11 lg:h-11 rounded-full bg-gray-50 border border-gray-100 flex items-center justify-center hover:bg-gray-100 transition-all ${passFlash ? 'scale-90 opacity-50 bg-red-100' : 'hover:scale-105'}`}
+                                            >
+                                                <svg className="w-5 h-5 lg:w-5 lg:h-5 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                            </button>
+
+                                            <button
+                                                onClick={handleLike} disabled={actionLoading}
+                                                className={`px-6 lg:px-6 h-12 lg:h-12 rounded-[1.5rem] bg-[#E11D48] text-white font-bold flex items-center gap-2 transition-all shadow-[0_4px_10px_rgba(225,29,72,0.3)]
+                                   ${likeFlash ? 'scale-110 shadow-[0_4px_20px_rgba(225,29,72,0.5)]' : 'hover:bg-rose-700 hover:scale-105'}`}
+                                            >
+                                                <svg className="w-5 h-5 lg:w-5 lg:h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" /></svg>
+                                                <span className="text-[16px] lg:text-[14px]">Thích</span>
+                                            </button>
+
+                                            <button
+                                                onClick={handleSuperLike} disabled={actionLoading}
+                                                className={`w-11 h-11 lg:w-11 lg:h-11 rounded-full bg-[#FFF0F4] border border-rose-50 flex items-center justify-center hover:bg-rose-100 transition-all ${superFlash ? 'scale-110 bg-yellow-100' : 'hover:scale-105'}`}
+                                            >
+                                                <svg className="w-5 h-5 lg:w-5 lg:h-5 text-rose-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" /></svg>
+                                            </button>
+
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+
+                            {/* ╔══════════════════════════╗
+                ║  RIGHT COLUMN — 40%      ║
+                ╚══════════════════════════╝ */}
+                            <div className="hidden lg:flex w-full lg:w-[40%] flex-col gap-4 lg:gap-5 relative z-0 h-auto lg:h-full min-h-0 flex-shrink-0">
+
+                                {/* AI Analysis Box - Takes fixed proportion */}
+                                <div className="bg-white rounded-[1.5rem] p-4 lg:p-5 shadow-[0_4px_24px_rgba(0,0,0,0.03)] border border-gray-100 relative overflow-hidden flex flex-col flex-shrink-0">
+                                    <div className="flex items-center justify-between border-b border-gray-50 pb-3 mb-3 lg:mb-4 relative z-10 shrink-0">
+                                        <h2 className="text-[15px] lg:text-[16px] font-bold text-gray-900 flex items-center gap-1.5">
+                                            <span className="text-rose-500 text-lg leading-[0]">✦</span>
+                                            Phân tích AI
+                                        </h2>
+                                        <div className="transform scale-[0.8] origin-right">
+                                            <AIScoreRing score={matchScore} />
+                                        </div>
+                                    </div>
+
+                                    <div className="flex flex-col gap-3 lg:gap-4 relative z-10 flex-shrink-0 overflow-y-auto pr-1 flex-1 min-h-0">
+                                        {/* Point 1 */}
+                                        <div className="flex gap-3 items-start shrink-0">
+                                            <div className="w-7 h-7 rounded-full bg-[#FFF0F4] flex items-center justify-center text-rose-500 shrink-0 mt-0.5 shadow-sm">
+                                                <svg className="w-[14px] h-[14px]" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" fill="white" /></svg>
+                                            </div>
+                                            <div>
+                                                <p className="text-[12px] lg:text-[13px] font-bold text-gray-900 mb-0.5">Tính cách tương đồng</p>
+                                                <p className="text-[11px] lg:text-[12px] text-gray-500 leading-snug line-clamp-2">Hai bạn đều thuộc nhóm tính cách hướng nội và chân thành.</p>
+                                            </div>
+                                        </div>
+
+                                        {/* Point 2 */}
+                                        <div className="flex gap-3 items-start shrink-0">
+                                            <div className="w-7 h-7 rounded-full bg-[#FFF5F1] flex items-center justify-center text-orange-500 shrink-0 mt-0.5 shadow-sm">
+                                                <svg className="w-[14px] h-[14px]" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 22h20L12 2z" /></svg>
+                                            </div>
+                                            <div>
+                                                <p className="text-[12px] lg:text-[13px] font-bold text-gray-900 mb-0.5">Sở thích giao thoa</p>
+                                                <p className="text-[11px] lg:text-[12px] text-gray-500 leading-snug line-clamp-2">
+                                                    {((cp.interests?.filter(i => user?.interests?.includes(i) || filters.interests?.includes(i))?.length || 0) > 0)
+                                                        ? `Có ${cp.interests?.filter(i => user?.interests?.includes(i) || filters.interests?.includes(i))?.length} sở thích chung, chủ đề tuyệt vời để bắt đầu.`
+                                                        : 'Chưa có nhiều sở thích chung nổi bật, hãy khám phá thêm nhé!'}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {/* Point 3 */}
+                                        <div className="flex gap-3 items-start shrink-0">
+                                            <div className="w-7 h-7 rounded-full bg-[#F5F3FF] flex items-center justify-center text-indigo-500 shrink-0 mt-0.5 shadow-sm">
+                                                <svg className="w-[14px] h-[14px]" fill="currentColor" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>
+                                            </div>
+                                            <div>
+                                                <p className="text-[12px] lg:text-[13px] font-bold text-gray-900 mb-0.5">Dự đoán kết nối</p>
+                                                <p className="text-[11px] lg:text-[12px] text-gray-500 leading-snug line-clamp-2">Khả năng cao cùng yêu thích các buổi hẹn hò ở quán cà phê yên tĩnh.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="text-center mt-3 pt-2 relative z-10 shrink-0">
+                                        <span className="text-[9px] font-bold text-gray-300 uppercase tracking-widest">Phân tích bởi LoveAI v2.0</span>
+                                    </div>
+                                </div>
+
+                                {/* Background Map image - Adjusts to remaining space */}
+                                <div className="flex-1 min-h-[90px] lg:min-h-[140px] rounded-[1.5rem] bg-gray-200 relative overflow-hidden shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
+                                    {mainSrc ? (
+                                        <img src={getFullImageUrl(mainSrc)} className="w-full h-full object-cover blur-[8px] grayscale opacity-50 scale-110" />
+                                    ) : (
+                                        <div className="w-full h-full bg-gradient-to-br from-gray-200 to-gray-300"></div>
+                                    )}
+                                    <div className="absolute inset-0 bg-white/10"></div>
+
+                                    {/* Pill */}
+                                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                        <span className="bg-white/95 backdrop-blur-md px-3 lg:px-4 py-1.5 lg:py-2 rounded-full text-[11px] font-bold text-gray-800 shadow-md flex items-center gap-1.5 border border-white">
+                                            <svg className="w-3.5 h-3.5 text-rose-600" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
+                                            {cp.distanceKm !== undefined && cp.distanceKm !== null ? `Cách bạn ${cp.distanceKm}km` : 'Đang ở gần bạn'} {cp.locationText && `(${cp.locationText.split(',')[0]})`}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Security Box */}
+                                <div className="bg-[#4C556A] text-white rounded-[1.2rem] p-4 flex items-center gap-3 shadow-md border border-[#5d6880] shrink-0 h-[80px]">
+                                    <div className="mt-0 shrink-0">
+                                        <svg className="w-[20px] h-[20px] text-white/60" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-[11px] lg:text-[12px] leading-tight text-gray-200 line-clamp-2">
+                                            Luôn ưu tiên an toàn. Hãy trò chuyện qua ứng dụng trước.
+                                            <button className="underline text-white font-semibold ml-1 hover:text-white/80 transition-colors">Tìm hiểu thêm</button>
+                                        </p>
+                                    </div>
+                                </div>
+
+                            </div>{/* end right column */}
+
+                        </div>
+                    </div>
+                </main>
+
+                {/* Super Like Animation Overlay */}
+                {superAnimation && (
+                    <div
+                        style={{
+                            position: 'fixed',
+                            inset: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: 'rgba(0,0,0,0.7)',
+                            zIndex: 1000,
+                            animation: 'fadeIn 0.3s ease-out'
+                        }}
+                    >
+                        <div
+                            style={{
+                                textAlign: 'center',
+                                animation: 'superLikePop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)'
+                            }}
+                        >
+                            <div style={{ fontSize: 80, marginBottom: 16 }}>
+                                ⭐
+                            </div>
+                            <h2 style={{
+                                fontSize: 28,
+                                fontWeight: 800,
+                                color: '#fff',
+                                textShadow: '0 0 30px rgba(251,191,36,0.8)',
+                                marginBottom: 8
+                            }}>
+                                SUPER LIKE!
+                            </h2>
+                            <p style={{
+                                fontSize: 14,
+                                color: '#fbbf24',
+                                fontWeight: 500
+                            }}>
+                                Bạn đã gửi Super Like cho {cp?.fullName || cp?.username}
+                            </p>
+                        </div>
+                    </div>
+                )}
+
+                {/* CSS Animations */}
+                <style>{`
         @keyframes fadeIn {
           from { opacity: 0; }
           to { opacity: 1; }
@@ -638,9 +837,55 @@ const Discover = () => {
           0% { transform: scale(0) rotate(0deg); opacity: 1; }
           100% { transform: scale(1.5) rotate(180deg); opacity: 0; }
         }
+        @keyframes fadeSlideUp {
+          from { opacity: 0; transform: translateY(30px) scale(0.98); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .profile-card-anim {
+          animation: fadeSlideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        @keyframes floatEffect {
+          0% { transform: translateY(0px); }
+          50% { transform: translateY(-6px); }
+          100% { transform: translateY(0px); }
+        }
+        .float-anim {
+          animation: floatEffect 4s ease-in-out infinite;
+        }
+        .float-anim-delayed {
+          animation: floatEffect 4s ease-in-out 2s infinite;
+        }
+        .main-photo-anim {
+          transition: transform 0.4s ease;
+        }
+        .main-photo-anim:hover {
+          transform: scale(1.02);
+        }
       `}</style>
-    </div>
-  );
+
+                {/* Filter Modal */}
+                <FilterModal
+                    isOpen={showFilterModal}
+                    onClose={() => setShowFilterModal(false)}
+                    initialFilters={filters}
+                    onApply={(newFilters) => {
+                        setFilters(newFilters);
+                        localStorage.setItem('discover_filters', JSON.stringify(newFilters));
+                    }}
+                />
+
+                {/* Profile Detail Bottom Sheet Modal */}
+                <ProfileDetailModal
+                    isOpen={showProfileDetail}
+                    onClose={() => setShowProfileDetail(false)}
+                    profile={cp}
+                    matchScore={matchScore}
+                    sharedInterests={sharedInterests}
+                />
+
+            </div>
+        </div>
+    );
 };
 
 export default Discover;

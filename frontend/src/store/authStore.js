@@ -49,8 +49,10 @@ export const useAuthStore = create((set, get) => ({
   login: async (credentials) => {
     set({ isLoading: true, error: null });
     try {
+      console.log('[authStore] login called with:', { email: credentials.email });
       const data = await authService.login(credentials);
-      
+      console.log('[authStore] login response:', data);
+
       if (data.user?.isLocked || data.user?.status === 'banned') {
         const banMsg = 'Tài khoản của bạn đã bị khóa bởi Quản trị viên.';
         set({ error: banMsg, isLoading: false });
@@ -63,16 +65,28 @@ export const useAuthStore = create((set, get) => ({
       if (data.user) {
         localStorage.setItem('user', JSON.stringify(data.user));
       }
-      
+
       set({ user: data.user, token: data.token, isLoading: false });
       return data;
     } catch (error) {
-      const errMsg = error.message === 'Tài khoản của bạn đã bị khóa bởi Quản trị viên.' 
-        ? error.message 
-        : (error.response?.data?.message || 'Đăng nhập thất bại');
-      set({ 
-        error: errMsg, 
-        isLoading: false 
+      console.error('[authStore] login error:', error);
+      // Extract error message properly - check both error.message and error.response
+      let errMsg;
+      if (error.response?.data?.message) {
+        errMsg = error.response.data.message;
+      } else if (error.response?.data?.error) {
+        errMsg = error.response.data.error;
+      } else if (error.message) {
+        errMsg = error.message;
+      } else {
+        errMsg = 'Đăng nhập thất bại';
+      }
+
+      // Don't override ban message
+      const isBanError = error.message === 'Tài khoản của bạn đã bị khóa bởi Quản trị viên.';
+      set({
+        error: isBanError ? error.message : errMsg,
+        isLoading: false
       });
       throw error;
     }

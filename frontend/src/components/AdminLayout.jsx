@@ -1,40 +1,50 @@
-import React, { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { adminAuthService } from '../services/api';
+import React, { useState, useEffect, useRef } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { adminAuthService, adminUserService } from '../services/api';
+
+const QUICK_LINKS = [
+  { title: 'Bảng điều khiển', path: '/admin/dashboard', icon: 'Dashboard', keywords: ['dashboard', 'thống kê', 'tổng quan', 'home'] },
+  { title: 'Quản lý người dùng', path: '/admin/users', icon: 'Users', keywords: ['user', 'người dùng', 'tài khoản', 'khách hàng'] },
+  { title: 'Kiểm duyệt AI', path: '/admin/ai', icon: 'ShieldCheck', keywords: ['ai', 'kiểm duyệt', 'report', 'báo cáo', 'vi phạm'] },
+  { title: 'Quản lý danh mục', path: '/admin/categories', icon: 'FileText', keywords: ['category', 'danh mục', 'sở thích', 'nghề nghiệp', 'tag'] },
+  { title: 'Phiên làm việc', path: '/admin/sessions', icon: 'Window', keywords: ['session', 'phiên', 'đăng nhập', 'online'] },
+  { title: 'Nhật ký hệ thống', path: '/admin/trace', icon: 'Activity', keywords: ['log', 'nhật ký', 'trace', 'hệ thống', 'lịch sử'] },
+  { title: 'Cài đặt hệ thống', path: '/admin/settings', icon: 'Settings', keywords: ['setting', 'cài đặt', 'cấu hình', 'config'] },
+];
 
 const Icons = {
   Dashboard: (props) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect width="7" height="9" x="3" y="3" rx="1" /><rect width="7" height="5" x="14" y="3" rx="1" /><rect width="7" height="9" x="14" y="12" rx="1" /><rect width="7" height="5" x="3" y="16" rx="1" /></svg>
   ),
   Users: (props) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
   ),
   Shield: (props) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /></svg>
   ),
   ShieldCheck: (props) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /><path d="m9 12 2 2 4-4" /></svg>
   ),
   FileText: (props) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y2="9"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><line x1="16" x2="8" y1="13" y2="13" /><line x1="16" x2="8" y1="17" y2="17" /><line x1="10" x2="8" y1="9" y2="9" /></svg>
   ),
   Settings: (props) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>
   ),
   Search: (props) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
   ),
   Bell: (props) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>
   ),
   Message: (props) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
   ),
   Window: (props) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><path d="M9 21V9"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="3" y1="9" x2="21" y2="9" /><path d="M9 21V9" /></svg>
   ),
   Activity: (props) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}><path d="M3 3v18h18" /><path d="m19 9-5 5-4-4-3 3" /></svg>
   ),
   UserFace1: () => <img src="https://i.pravatar.cc/150?u=1" alt="avatar" className="w-10 h-10 rounded-full object-cover" />
 };
@@ -42,18 +52,82 @@ const Icons = {
 export default function AdminLayout({ children, title = 'Bảng điều khiển', noPadding = false }) {
   const [admin, setAdmin] = useState({ name: 'Quản trị viên', avatar: null });
   const location = useLocation();
+  const navigate = useNavigate();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [searchResults, setSearchResults] = useState({ users: [], links: [] });
+  const [isSearching, setIsSearching] = useState(false);
+  const searchRef = useRef(null);
+
+  // Focus click outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (searchRef.current && !searchRef.current.contains(event.target)) {
+        setIsSearchFocused(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Debounce search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Fetch results
+  useEffect(() => {
+    const fetchResults = async () => {
+      if (!debouncedSearch.trim() || debouncedSearch.length < 2) {
+        setSearchResults({ users: [], links: [] });
+        setIsSearching(false);
+        return;
+      }
+      setIsSearching(true);
+      const query = debouncedSearch.toLowerCase();
+
+      const matchedLinks = QUICK_LINKS.filter(link =>
+        link.title.toLowerCase().includes(query) ||
+        link.keywords.some(kw => kw.includes(query))
+      ).slice(0, 3);
+
+      try {
+        const res = await adminUserService.getUsers({ search: debouncedSearch, limit: 3 });
+        const matchedUsers = res.success ? (res.data || []) : [];
+        setSearchResults({ users: matchedUsers, links: matchedLinks });
+      } catch (error) {
+        console.error('Search error:', error);
+      } finally {
+        setIsSearching(false);
+      }
+    };
+    fetchResults();
+  }, [debouncedSearch]);
 
   useEffect(() => {
     const fetchAdminInfo = async () => {
       try {
         const adminInfo = await adminAuthService.getCurrentAdmin();
-        if (adminInfo) setAdmin(adminInfo.data || adminInfo);
+        if (adminInfo) {
+          const adminData = adminInfo.user || adminInfo.admin || adminInfo.data || adminInfo;
+          setAdmin(adminData);
+        }
       } catch (e) {
         console.error('Failed to load admin profile', e);
       }
     };
     fetchAdminInfo();
   }, []);
+
+  const handleSearch = (e) => {
+    if (e.key === 'Enter' && searchTerm.trim()) {
+      navigate(`/admin/users?search=${encodeURIComponent(searchTerm.trim())}`);
+    }
+  };
 
   const getMenuClass = (path) => {
     const isActive = location.pathname.startsWith(path);
@@ -101,12 +175,9 @@ export default function AdminLayout({ children, title = 'Bảng điều khiển'
             </Link>
             <Link to="/admin/trace" className={getMenuClass('/admin/trace')}>
               <Icons.Activity className={getIconClass('/admin/trace')} />
-              Lưu vết hệ thống
+              Nhật ký hệ thống
             </Link>
-            <Link to="/admin/settings" className={getMenuClass('/admin/settings')}>
-              <Icons.Settings className={getIconClass('/admin/settings')} />
-              Cài đặt hệ thống
-            </Link>
+
           </nav>
         </div>
 
@@ -123,17 +194,106 @@ export default function AdminLayout({ children, title = 'Bảng điều khiển'
         {/* Header */}
         <header className="h-[76px] px-8 flex items-center justify-between border-b border-[#F0EBEF] bg-white/70 backdrop-blur-md shrink-0">
           <h2 className="text-xl font-bold">{title}</h2>
-          
+
           <div className="flex items-center gap-6">
-            <div className="relative">
+            <div className="relative z-50" ref={searchRef}>
               <Icons.Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input 
-                type="text" 
-                placeholder="Tìm kiếm hệ thống..." 
-                className="w-64 pl-10 pr-4 py-2 bg-gray-100/80 border-none rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-[#E53258]/20 transition-shadow"
+              <input
+                type="text"
+                placeholder="Tìm kiếm hệ thống..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onFocus={() => setIsSearchFocused(true)}
+                onKeyDown={handleSearch}
+                className="w-64 pl-10 pr-4 py-2 bg-gray-100/80 border-none rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-[#E53258]/20 focus:bg-white transition-all"
               />
+
+              {/* Dropdown */}
+              {isSearchFocused && searchTerm.trim().length >= 2 && (
+                <div className="absolute top-full left-0 mt-2 w-[360px] bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+                  <div className="p-2">
+                    {isSearching ? (
+                      <div className="p-4 text-center text-sm text-gray-500">Đang tìm kiếm...</div>
+                    ) : (
+                      <>
+                        {/* Quick Links */}
+                        {searchResults.links.length > 0 && (
+                          <div className="mb-2">
+                            <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Trang quản trị</div>
+                            {searchResults.links.map(link => {
+                              const IconComponent = Icons[link.icon];
+                              return (
+                                <Link
+                                  key={link.path}
+                                  to={link.path}
+                                  onClick={() => setIsSearchFocused(false)}
+                                  className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 rounded-xl transition-colors"
+                                >
+                                  <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
+                                    <IconComponent className="w-4 h-4 text-gray-500" />
+                                  </div>
+                                  <span className="text-sm font-medium text-gray-700">{link.title}</span>
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Users */}
+                        {searchResults.users.length > 0 && (
+                          <div>
+                            <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Người dùng</div>
+                            {searchResults.users.map(user => (
+                              <Link
+                                key={user._id}
+                                to={`/admin/users?search=${user.email}`}
+                                onClick={() => setIsSearchFocused(false)}
+                                className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 rounded-xl transition-colors"
+                              >
+                                <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-100 shrink-0 border border-gray-200">
+                                  {user.avatar ? (
+                                    <img src={user.avatar} alt="avatar" className="w-full h-full object-cover" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center bg-rose-100 text-[#E53258] font-bold text-xs uppercase">
+                                      {user.fullName ? user.fullName.charAt(0) : 'U'}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-sm font-medium text-gray-900 truncate">{user.fullName || user.username}</div>
+                                  <div className="text-[11px] text-gray-500 truncate">{user.email}</div>
+                                </div>
+                                <div className="shrink-0">
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 uppercase">{user.role || 'USER'}</span>
+                                </div>
+                              </Link>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Empty or View All */}
+                        {searchResults.users.length === 0 && searchResults.links.length === 0 ? (
+                          <div className="p-4 text-center text-sm text-gray-500">
+                            Không tìm thấy kết quả nào cho "{searchTerm}"
+                          </div>
+                        ) : (
+                          <div className="mt-2 pt-2 border-t border-gray-50 px-2 pb-1">
+                            <Link
+                              to={`/admin/users?search=${encodeURIComponent(searchTerm)}`}
+                              onClick={() => setIsSearchFocused(false)}
+                              className="block w-full text-center py-2 text-sm text-[#E53258] font-medium hover:bg-rose-50 rounded-lg transition-colors"
+                            >
+                              Xem tất cả kết quả người dùng
+                            </Link>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
-            
+
             <div className="flex items-center gap-4 border-l border-gray-200 pl-6 cursor-pointer">
               <div className="relative text-gray-600 hover:text-gray-900 transition-colors">
                 <Icons.Bell className="w-5 h-5" />
@@ -146,7 +306,7 @@ export default function AdminLayout({ children, title = 'Bảng điều khiển'
                 <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-200 bg-gray-100 flex items-center justify-center">
                   {admin.avatar ? <img src={admin.avatar} alt="avatar" className="w-full h-full object-cover" /> : <Icons.UserFace1 />}
                 </div>
-                <button 
+                <button
                   onClick={() => {
                     localStorage.removeItem('adminToken');
                     localStorage.removeItem('adminUser');

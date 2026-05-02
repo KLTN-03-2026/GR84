@@ -15,9 +15,9 @@ import Home from './pages/Home';
 import Profile from './pages/Profile';
 import EditProfile from './pages/EditProfile';
 import Messages from './pages/Messages';
-import VideoCall from './pages/VideoCall';
 import Discover from './pages/Discover';
 import Matches from './pages/Matches';
+import VideoCall from './pages/VideoCall';
 import RandomVideoChat from './pages/RandomVideoChat';
 import Safety from './pages/Safety';
 import AuthCallback from './pages/AuthCallback';
@@ -26,12 +26,11 @@ import UserManagement from './pages/UserManagement';
 import CategoryManagement from './pages/CategoryManagement';
 import SessionManagement from './pages/SessionManagement';
 import CensorshipAndViolationManagement from './pages/CensorshipAndViolationManagement';
-import SystemParameterConfiguration from './pages/SystemParameterConfiguration';
-import SystemTrace from './pages/SystemTrace';
+import SystemTrace from './pages/AdminLog';
 
 const ProtectedRoute = ({ children }) => {
   const { token, isLoading, user } = useAuthStore();
-  
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -39,10 +38,10 @@ const ProtectedRoute = ({ children }) => {
       </div>
     );
   }
-  
+
   if (!token) return <Navigate to="/login" replace />;
 
-  if (user?.role === 'admin' || user?.role === 'Admin') {
+  if (user?.role === 'admin' || user?.role === 'super_admin') {
     return <Navigate to="/admin/dashboard" replace />;
   }
 
@@ -52,7 +51,7 @@ const ProtectedRoute = ({ children }) => {
 const PublicRoute = ({ children }) => {
   const { token, isLoading, user } = useAuthStore();
   const { adminToken } = useAdminAuthStore();
-  
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -60,9 +59,9 @@ const PublicRoute = ({ children }) => {
       </div>
     );
   }
-  
+
   if (token) {
-    if (user?.role === 'admin' || user?.role === 'Admin') {
+    if (user?.role === 'admin' || user?.role === 'super_admin') {
       if (adminToken) {
         return <Navigate to="/admin/dashboard" replace />;
       }
@@ -70,14 +69,14 @@ const PublicRoute = ({ children }) => {
     }
     return <Navigate to="/discover" replace />;
   }
-  
+
   return children;
 };
 
 // Admin Routes
 const AdminProtectedRoute = ({ children }) => {
   const { adminToken, isLoading } = useAdminAuthStore();
-  
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -85,7 +84,7 @@ const AdminProtectedRoute = ({ children }) => {
       </div>
     );
   }
-  
+
   return adminToken ? children : <Navigate to="/login" replace />;
 };
 
@@ -106,117 +105,109 @@ function App() {
         <MatchNotificationProvider>
           <Routes>
             {/* Admin Routes */}
-            <Route 
-              path="/admin/dashboard" 
+            <Route
+              path="/admin/dashboard"
               element={
                 <AdminProtectedRoute>
                   <Dashboard />
                 </AdminProtectedRoute>
-              } 
+              }
             />
-            <Route 
-              path="/admin/users" 
+            <Route
+              path="/admin/users"
               element={
                 <AdminProtectedRoute>
                   <UserManagement />
                 </AdminProtectedRoute>
-              } 
+              }
             />
-            <Route 
-              path="/admin/categories" 
+            <Route
+              path="/admin/categories"
               element={
                 <AdminProtectedRoute>
                   <CategoryManagement />
                 </AdminProtectedRoute>
-              } 
+              }
             />
-            <Route 
-              path="/admin/sessions" 
+            <Route
+              path="/admin/sessions"
               element={
                 <AdminProtectedRoute>
                   <SessionManagement />
                 </AdminProtectedRoute>
-              } 
+              }
             />
-            <Route 
-              path="/admin/ai" 
+            <Route
+              path="/admin/ai"
               element={
                 <AdminProtectedRoute>
                   <CensorshipAndViolationManagement />
                 </AdminProtectedRoute>
-              } 
+              }
             />
-            <Route 
-              path="/admin/settings" 
-              element={
-                <AdminProtectedRoute>
-                  <SystemParameterConfiguration />
-                </AdminProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/admin/trace" 
+            <Route
+              path="/admin/trace"
               element={
                 <AdminProtectedRoute>
                   <SystemTrace />
                 </AdminProtectedRoute>
-              } 
+              }
             />
-            <Route 
-              path="/admin/login" 
-              element={<Navigate to="/login" replace />} 
+            <Route
+              path="/admin/login"
+              element={<Navigate to="/login" replace />}
             />
 
             {/* Public/Auth Routes */}
-            <Route 
-              path="/login" 
+            <Route
+              path="/login"
               element={
                 <PublicRoute>
                   <Login />
                 </PublicRoute>
-              } 
+              }
             />
-            <Route 
-              path="/register" 
+            <Route
+              path="/register"
               element={
                 <PublicRoute>
                   <Register />
                 </PublicRoute>
-              } 
+              }
             />
-            <Route 
-              path="/forgot-password" 
+            <Route
+              path="/forgot-password"
               element={
                 <PublicRoute>
                   <ForgotPassword />
                 </PublicRoute>
-              } 
+              }
             />
-            
+
             {/* Protected Routes */}
-            <Route 
-              path="/onboarding" 
+            <Route
+              path="/onboarding"
               element={
                 <ProtectedRoute>
                   <Onboarding />
                 </ProtectedRoute>
-              } 
+              }
             />
-            <Route 
-              path="/discover" 
+            <Route
+              path="/discover"
               element={
                 <ProtectedRoute>
                   <Discover />
                 </ProtectedRoute>
-              } 
+              }
             />
-            <Route 
-              path="/matches" 
+            <Route
+              path="/matches"
               element={
                 <ProtectedRoute>
                   <Matches />
                 </ProtectedRoute>
-              } 
+              }
             />
             <Route
               path="/messages"
@@ -227,10 +218,50 @@ function App() {
               }
             />
             <Route
-              path="/messages/:matchId"
+              path="/profile"
               element={
                 <ProtectedRoute>
-                  <Messages />
+                  <Profile />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/profile/:userId"
+              element={
+                <ProtectedRoute>
+                  <Profile />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/profile/edit"
+              element={
+                <ProtectedRoute>
+                  <EditProfile />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <EditProfile />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/safety"
+              element={
+                <ProtectedRoute>
+                  <Safety />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/video-chat"
+              element={
+                <ProtectedRoute>
+                  <RandomVideoChat />
                 </ProtectedRoute>
               }
             />
@@ -242,71 +273,23 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            <Route 
-              path="/profile" 
-              element={
-                <ProtectedRoute>
-                  <Profile />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/profile/:userId" 
-              element={
-                <ProtectedRoute>
-                  <Profile />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/profile/edit" 
-              element={
-                <ProtectedRoute>
-                  <EditProfile />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/settings" 
-              element={
-                <ProtectedRoute>
-                  <EditProfile />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/safety" 
-              element={
-                <ProtectedRoute>
-                  <Safety />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/video-chat" 
-              element={
-                <ProtectedRoute>
-                  <RandomVideoChat />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/" 
+            <Route
+              path="/"
               element={
                 <PublicRoute>
                   <LandingPage />
                 </PublicRoute>
-              } 
+              }
             />
-            <Route 
-              path="/auth/callback" 
-              element={<AuthCallback />} 
+            <Route
+              path="/auth/callback"
+              element={<AuthCallback />}
             />
-            
+
             {/* Catch All */}
-            <Route 
-              path="*" 
-              element={<Navigate to="/" replace />} 
+            <Route
+              path="*"
+              element={<Navigate to="/" replace />}
             />
           </Routes>
         </MatchNotificationProvider>

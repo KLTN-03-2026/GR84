@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import AdminLayout from '../components/AdminLayout';
+import { adminSessionService } from '../services/api';
 
 // Custom Icons for Session Management
 const Icons = {
@@ -53,75 +54,142 @@ const Icons = {
     )
 };
 
-// Mock Data
-const sessionData = [
-    {
-        id: 'user_8291',
-        name: 'Hoàng Minh Anh',
-        ip: '192.168.1.105',
-        device: 'Chrome / macOS',
-        deviceVer: 'Version 118.0.5993',
-        deviceIcon: 'laptop',
-        time: '14:20:15',
-        date: 'Hôm nay, 12 Th04',
-        status: 'TRỰC TUYẾN',
-        avatar: 'https://i.pravatar.cc/150?img=11',
-        selected: true
-    },
-    {
-        id: 'user_4432',
-        name: 'Trần Phương Thảo',
-        ip: '113.161.45.22',
-        device: 'Safari / iOS',
-        deviceVer: 'iPhone 14 Pro Max',
-        deviceIcon: 'smartphone',
-        time: '12:05:44',
-        date: 'Hôm nay, 12 Th04',
-        status: 'TRỰC TUYẾN',
-        avatar: 'https://i.pravatar.cc/150?img=5',
-        selected: false
-    },
-    {
-        id: 'user_9901',
-        name: 'Cảnh báo rủi ro',
-        ip: '103.21.144.18',
-        device: 'Firefox / Linux',
-        deviceVer: 'IP từ vùng hạn chế',
-        deviceIcon: 'globe',
-        time: '02:11:00',
-        date: 'Hôm nay, 12 Th04',
-        status: 'BỊ NGHI NGỜ',
-        avatar: 'https://i.pravatar.cc/150?img=12',
-        isRisk: true,
-        selected: true
-    }
-];
-
 export default function SessionManagement() {
-    const [showToast, setShowToast] = useState(true);
+    const [sessions, setSessions] = useState([]);
+    const [stats, setStats] = useState({ activeCount: 0, highRiskCount: 0 });
+    const [loading, setLoading] = useState(true);
+    
+    // Pagination & Filters
+    const [page, setPage] = useState(1);
+    const [limit] = useState(20);
+    const [total, setTotal] = useState(0);
+    const [totalPages, setTotalPages] = useState(1);
+    const [searchInput, setSearchInput] = useState('');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [statusFilter, setStatusFilter] = useState('active');
+
+    // UI States
+    const [selectedIds, setSelectedIds] = useState([]);
+    const [toast, setToast] = useState({ show: false, message: '' });
+
+    const showToastMsg = (msg) => {
+        setToast({ show: true, message: msg });
+        setTimeout(() => setToast({ show: false, message: '' }), 3000);
+    };
+
+    const fetchSessions = useCallback(async () => {
+        try {
+            setLoading(true);
+            const [sessionsRes, statsRes] = await Promise.all([
+                adminSessionService.getSessions({ page, limit, search: searchQuery, status: statusFilter }),
+                adminSessionService.getStats()
+            ]);
+            
+            if (sessionsRes.success) {
+                setSessions(sessionsRes.data || []);
+                setTotal(sessionsRes.pagination?.total || 0);
+                setTotalPages(sessionsRes.pagination?.pages || 1);
+            }
+            if (statsRes.success) {
+                const data = statsRes.data || {};
+                setStats({ 
+                    activeCount: data.totalActive || 0, 
+                    highRiskCount: data.totalHighRisk || data.totalRisky || 0 
+                });
+            }
+            // Clear selection on fetch
+            setSelectedIds([]);
+        } catch (error) {
+            console.error('Error fetching sessions:', error);
+        } finally {
+            setLoading(false);
+        }
+    }, [page, limit, searchQuery, statusFilter]);
+
+    useEffect(() => {
+        fetchSessions();
+    }, [fetchSessions]);
+
+    const handleSearch = () => {
+        setSearchQuery(searchInput);
+        setPage(1);
+    };
+
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter') handleSearch();
+    };
+
+    const toggleSelectAll = () => {
+        if (selectedIds.length === sessions.length && sessions.length > 0) {
+            setSelectedIds([]);
+        } else {
+            setSelectedIds(sessions.map(s => s._id));
+        }
+    };
+
+    const toggleSelect = (id) => {
+        setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+    };
+
+    const handleKill = async (id) => {
+        if (!window.confirm('Ngắt kết nối phiên này? Người dùng sẽ bị văng ra ngoài ngay lập tức.')) return;
+        try {
+            const res = await adminSessionService.killSession(id, 'Bị quản trị viên ngắt kết nối');
+            if (res.success) {
+                showToastMsg('Đã ngắt kết nối phiên làm việc');
+                fetchSessions();
+            }
+        } catch (e) {
+            alert(e.response?.data?.message || 'Lỗi ngắt kết nối');
+        }
+    };
+
+    const handleBulkKill = async () => {
+        if (selectedIds.length === 0) return;
+        if (!window.confirm(`Ngắt kết nối ${selectedIds.length} phiên đã chọn?`)) return;
+        try {
+            const res = await adminSessionService.bulkKill(selectedIds, 'Bị quản trị viên ngắt kết nối');
+            if (res.success) {
+                showToastMsg(`Đã ngắt kết nối ${selectedIds.length} phiên làm việc`);
+                setSelectedIds([]);
+                fetchSessions();
+            }
+        } catch (e) {
+            alert(e.response?.data?.message || 'Lỗi ngắt kết nối hàng loạt');
+        }
+    };
+
+    const formatDateStr = (dateString) => {
+        if (!dateString) return { time: 'N/A', date: 'N/A' };
+        const d = new Date(dateString);
+        return {
+            time: d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            date: d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        };
+    };
 
     return (
         <AdminLayout title="Quản trị Phiên làm việc" noPadding={true}>
             <div className="flex flex-col h-full bg-[#FAFAFA] relative min-h-screen">
 
                 {/* Floating Toast Notification */}
-                {showToast && (
+                {toast.show && (
                     <div className="absolute top-8 right-8 bg-white rounded-2xl shadow-[0_10px_40px_rgb(0,0,0,0.08)] p-4 flex items-center gap-4 w-[320px] z-50 animate-in slide-in-from-right-8 fade-in duration-300">
                         <div className="w-10 h-10 bg-[#ECFDF5] rounded-full flex items-center justify-center text-[#10B981] shrink-0">
                             <Icons.CheckCircle className="w-5 h-5" />
                         </div>
                         <div className="flex-1">
                             <h4 className="text-[14px] font-bold text-gray-900">Thao tác thành công</h4>
-                            <p className="text-[13px] text-gray-500 mt-0.5">Đã ngắt kết nối phiên làm việc</p>
+                            <p className="text-[13px] text-gray-500 mt-0.5">{toast.message}</p>
                         </div>
-                        <button onClick={() => setShowToast(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                        <button onClick={() => setToast({ show: false, message: '' })} className="text-gray-400 hover:text-gray-600 transition-colors">
                             <Icons.X />
                         </button>
                     </div>
                 )}
 
                 {/* Floating Action Button */}
-                <button className="fixed bottom-10 right-10 w-16 h-16 rounded-full bg-[#E53258] text-white flex items-center justify-center shadow-[0_10px_30px_rgba(229,50,88,0.4)] hover:scale-105 hover:bg-[#D42247] transition-all z-40 group">
+                <button onClick={fetchSessions} className="fixed bottom-10 right-10 w-16 h-16 rounded-full bg-[#E53258] text-white flex items-center justify-center shadow-[0_10px_30px_rgba(229,50,88,0.4)] hover:scale-105 hover:bg-[#D42247] transition-all z-40 group" title="Làm mới dữ liệu">
                     <Icons.Lightning className="group-hover:animate-pulse" />
                 </button>
 
@@ -137,11 +205,11 @@ export default function SessionManagement() {
                         {/* Stats boxes on the right */}
                         <div className="flex gap-5">
                             <div className="bg-[#FFF0F3] rounded-[24px] p-5 px-8 text-center min-w-[150px] flex flex-col justify-center">
-                                <div className="text-[32px] font-black text-[#E53258] leading-none mb-1.5">1,284</div>
+                                <div className="text-[32px] font-black text-[#E53258] leading-none mb-1.5">{stats.activeCount || 0}</div>
                                 <div className="text-[10px] font-black text-[#E53258] uppercase tracking-widest text-opacity-80">ĐANG TRỰC TUYẾN</div>
                             </div>
                             <div className="bg-[#FFF8F8] rounded-[24px] p-5 px-8 text-center min-w-[140px] flex flex-col justify-center border border-gray-100/50">
-                                <div className="text-[32px] font-black text-gray-900 leading-none mb-1.5">42</div>
+                                <div className="text-[32px] font-black text-gray-900 leading-none mb-1.5">{stats.highRiskCount || 0}</div>
                                 <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest">RỦI RO CAO</div>
                             </div>
                         </div>
@@ -153,8 +221,15 @@ export default function SessionManagement() {
                             <div className="pl-5 text-gray-400">
                                 <Icons.Search />
                             </div>
-                            <input type="text" placeholder="Tìm kiếm theo ID người dùng hoặc dải IP..." className="flex-1 px-4 py-2.5 bg-transparent text-[15px] outline-none font-medium text-gray-700 placeholder-gray-400" />
-                            <button className="bg-[#B21C3A] text-white px-8 py-3.5 rounded-full text-[14px] font-bold hover:bg-[#90162f] shadow-lg shadow-rose-200/50 transition-colors">
+                            <input 
+                                type="text" 
+                                value={searchInput}
+                                onChange={(e) => setSearchInput(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                placeholder="Tìm kiếm theo ID, email, tên hoặc IP..." 
+                                className="flex-1 px-4 py-2.5 bg-transparent text-[15px] outline-none font-medium text-gray-700 placeholder-gray-400" 
+                            />
+                            <button onClick={handleSearch} className="bg-[#B21C3A] text-white px-8 py-3.5 rounded-full text-[14px] font-bold hover:bg-[#90162f] shadow-lg shadow-rose-200/50 transition-colors">
                                 Tìm kiếm
                             </button>
                         </div>
@@ -163,10 +238,18 @@ export default function SessionManagement() {
                             <div className="text-[#E53258] flex items-center justify-center">
                                 <Icons.Filter className="w-5 h-5" />
                             </div>
-                            <span className="text-[15px] font-bold text-gray-900 whitespace-nowrap">Lọc nâng cao</span>
+                            <span className="text-[15px] font-bold text-gray-900 whitespace-nowrap">Lọc trạng thái</span>
                             <div className="w-[1px] h-6 bg-gray-200 mx-1"></div>
-                            <div className="bg-white border border-gray-100 shadow-sm px-4 py-2 rounded-full text-[13px] font-bold text-gray-600">Chrome</div>
-                            <div className="bg-white border border-gray-100 shadow-sm px-4 py-2 rounded-full text-[13px] font-bold text-gray-600">Hà Nội</div>
+                            <select 
+                                value={statusFilter} 
+                                onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+                                className="bg-white border-none outline-none text-[13px] font-bold text-gray-600 cursor-pointer"
+                            >
+                                <option value="active">Đang hoạt động</option>
+                                <option value="all">Tất cả</option>
+                                <option value="revoked">Đã ngắt</option>
+                                <option value="expired">Đã hết hạn</option>
+                            </select>
                         </div>
                     </div>
 
@@ -176,11 +259,22 @@ export default function SessionManagement() {
                         {/* Table Toolbar */}
                         <div className="flex justify-between items-center bg-[#FCFAFA] rounded-[24px] p-3 pl-6 m-2 mb-2">
                             <div className="flex items-center gap-4">
-                                <input type="checkbox" className="w-5 h-5 rounded-[6px] border-gray-300 text-[#E53258] focus:ring-[#E53258] accent-[#E53258]" checked readOnly />
-                                <span className="text-[15px] font-bold text-gray-900">Chọn tất cả</span>
-                                <span className="text-[13px] font-medium text-gray-500">Đã chọn 3 phiên</span>
+                                <input 
+                                    type="checkbox" 
+                                    className="w-5 h-5 rounded-[6px] border-gray-300 text-[#E53258] focus:ring-[#E53258] accent-[#E53258] cursor-pointer" 
+                                    checked={sessions.length > 0 && selectedIds.length === sessions.length} 
+                                    onChange={toggleSelectAll} 
+                                />
+                                <span className="text-[15px] font-bold text-gray-900 cursor-pointer" onClick={toggleSelectAll}>Chọn tất cả</span>
+                                {selectedIds.length > 0 && (
+                                    <span className="text-[13px] font-medium text-gray-500">Đã chọn {selectedIds.length} phiên</span>
+                                )}
                             </div>
-                            <button className="bg-[#E53258] hover:bg-[#D42247] text-white px-6 py-3 rounded-full text-[14px] font-bold transition-all flex items-center gap-2 shadow-lg shadow-rose-200/60 active:scale-95">
+                            <button 
+                                onClick={handleBulkKill}
+                                disabled={selectedIds.length === 0}
+                                className={`${selectedIds.length > 0 ? 'bg-[#E53258] hover:bg-[#D42247] shadow-lg shadow-rose-200/60 active:scale-95 text-white' : 'bg-gray-200 text-gray-400 cursor-not-allowed'} px-6 py-3 rounded-full text-[14px] font-bold transition-all flex items-center gap-2`}
+                            >
                                 <Icons.Kill className="w-4 h-4" />
                                 <span>Ngắt kết nối (Kill Session)</span>
                             </button>
@@ -198,83 +292,131 @@ export default function SessionManagement() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50/80">
-                                {sessionData.map((s, i) => (
-                                    <tr key={i} className={`transition-colors group ${s.isRisk ? 'bg-[#FFF0F3]/30' : 'hover:bg-[#FCFAFA]'}`}>
-                                        <td className="py-5 pl-8">
-                                            <div className="flex items-center gap-4">
-                                                <input type="checkbox" className="w-5 h-5 rounded-[6px] border-gray-300 text-[#E53258] focus:ring-[#E53258] accent-[#E53258]" checked={s.selected} readOnly />
-                                                <img src={s.avatar} alt="avatar" className="w-10 h-10 rounded-full object-cover shadow-sm" />
-                                                <div>
-                                                    <div className="font-bold text-gray-900 text-[15px] leading-tight">{s.id}</div>
-                                                    <div className={`text-[13px] font-medium mt-0.5 ${s.isRisk ? 'text-[#E53258]' : 'text-gray-500'}`}>{s.name}</div>
+                                {loading ? (
+                                    <tr><td colSpan="6" className="py-12 text-center text-gray-400">Đang tải dữ liệu...</td></tr>
+                                ) : sessions.length === 0 ? (
+                                    <tr><td colSpan="6" className="py-12 text-center text-gray-400">Không tìm thấy phiên làm việc nào.</td></tr>
+                                ) : sessions.map((s) => {
+                                    const isRisk = s.riskLevel === 'high_risk' || s.riskLevel === 'suspicious';
+                                    const { time, date } = formatDateStr(s.loginAt);
+                                    
+                                    // Determine icon
+                                    let DeviceIcon = Icons.Laptop;
+                                    const devLower = (s.device || '').toLowerCase();
+                                    const osLower = (s.os || '').toLowerCase();
+                                    if (devLower.includes('mobile') || osLower.includes('ios') || osLower.includes('android')) {
+                                        DeviceIcon = Icons.Smartphone;
+                                    } else if (isRisk) {
+                                        DeviceIcon = Icons.Globe;
+                                    }
+
+                                    return (
+                                        <tr key={s._id} className={`transition-colors group ${isRisk ? 'bg-[#FFF0F3]/30' : 'hover:bg-[#FCFAFA]'}`}>
+                                            <td className="py-5 pl-8">
+                                                <div className="flex items-center gap-4">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        className="w-5 h-5 rounded-[6px] border-gray-300 text-[#E53258] focus:ring-[#E53258] accent-[#E53258] cursor-pointer" 
+                                                        checked={selectedIds.includes(s._id)} 
+                                                        onChange={() => toggleSelect(s._id)} 
+                                                    />
+                                                    <img src={s.userId?.avatar || 'https://i.pravatar.cc/150?img=11'} alt="avatar" className="w-10 h-10 rounded-full object-cover shadow-sm" />
+                                                    <div>
+                                                        <div className="font-bold text-gray-900 text-[15px] leading-tight max-w-[150px] truncate" title={s.userId?._id}>{s.userId?._id || 'Unknown'}</div>
+                                                        <div className={`text-[13px] font-medium mt-0.5 truncate max-w-[150px] ${isRisk ? 'text-[#E53258]' : 'text-gray-500'}`} title={s.userId?.fullName || s.userId?.username}>{s.userId?.fullName || s.userId?.username || 'Unknown User'}</div>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        </td>
-                                        <td className="py-5">
-                                            <span className={`font-bold text-[14px] font-mono tracking-wider ${s.isRisk ? 'text-[#E53258]' : 'text-gray-600'}`}>{s.ip}</span>
-                                        </td>
-                                        <td className="py-5">
-                                            <div className="flex items-start gap-4">
-                                                <div className="text-gray-400 mt-1">
-                                                    {s.deviceIcon === 'laptop' && <Icons.Laptop />}
-                                                    {s.deviceIcon === 'smartphone' && <Icons.Smartphone />}
-                                                    {s.deviceIcon === 'globe' && <Icons.Globe className={s.isRisk ? 'text-[#E53258]' : ''} />}
+                                            </td>
+                                            <td className="py-5">
+                                                <span className={`font-bold text-[14px] font-mono tracking-wider ${isRisk ? 'text-[#E53258]' : 'text-gray-600'}`}>{s.ipAddress || 'Unknown IP'}</span>
+                                            </td>
+                                            <td className="py-5">
+                                                <div className="flex items-start gap-4">
+                                                    <div className="text-gray-400 mt-1">
+                                                        <DeviceIcon className={isRisk && DeviceIcon === Icons.Globe ? 'text-[#E53258]' : ''} />
+                                                    </div>
+                                                    <div>
+                                                        <div className="font-bold text-gray-900 text-[14px] leading-tight truncate max-w-[120px]">{s.browser || s.device || 'Unknown'}</div>
+                                                        <div className={`text-[12px] font-medium mt-0.5 truncate max-w-[120px] ${isRisk ? 'text-[#E53258]' : 'text-gray-400'}`}>{s.os || 'Unknown OS'}</div>
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <div className="font-bold text-gray-900 text-[14px] leading-tight">{s.device}</div>
-                                                    <div className={`text-[12px] font-medium mt-0.5 ${s.isRisk ? 'text-[#E53258]' : 'text-gray-400'}`}>{s.deviceVer}</div>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td className="py-5">
-                                            <div className="font-bold text-gray-900 text-[14px] leading-tight">{s.time}</div>
-                                            <div className="text-[12px] font-medium text-gray-500 mt-0.5">{s.date}</div>
-                                        </td>
-                                        <td className="py-5 text-center">
-                                            {s.status === 'TRỰC TUYẾN' ? (
-                                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#E8FFF0] text-[#10B981] rounded-full text-[10px] font-black tracking-widest">
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]"></span>
-                                                    TRỰC TUYẾN
-                                                </span>
-                                            ) : (
-                                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#FFF0F3] text-[#E53258] rounded-full text-[10px] font-black tracking-widest">
-                                                    BỊ NGHI NGỜ
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="py-5 text-right pr-8">
-                                            {s.isRisk ? (
-                                                <button className="w-10 h-10 rounded-full bg-[#E53258] text-white flex items-center justify-center shadow-lg shadow-rose-200/50 ml-auto hover:bg-[#D42247] transition-all hover:scale-105 active:scale-95">
-                                                    <Icons.Warning className="w-5 h-5" />
-                                                </button>
-                                            ) : (
-                                                <button className="text-[#E53258] hover:text-[#D42247] ml-auto flex items-center justify-center p-2 transition-colors hover:scale-110">
-                                                    <Icons.Logout />
-                                                </button>
-                                            )}
-                                        </td>
-                                    </tr>
-                                ))}
+                                            </td>
+                                            <td className="py-5">
+                                                <div className="font-bold text-gray-900 text-[14px] leading-tight">{time}</div>
+                                                <div className="text-[12px] font-medium text-gray-500 mt-0.5">{date}</div>
+                                            </td>
+                                            <td className="py-5 text-center">
+                                                {s.status === 'active' ? (
+                                                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#E8FFF0] text-[#10B981] rounded-full text-[10px] font-black tracking-widest">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]"></span>
+                                                        TRỰC TUYẾN
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#FFF0F3] text-[#E53258] rounded-full text-[10px] font-black tracking-widest">
+                                                        {s.status === 'revoked' ? 'ĐÃ NGẮT' : 'HẾT HẠN'}
+                                                    </span>
+                                                )}
+                                            </td>
+                                            <td className="py-5 text-right pr-8">
+                                                {s.status === 'active' ? (
+                                                    isRisk ? (
+                                                        <button onClick={() => handleKill(s._id)} className="w-10 h-10 rounded-full bg-[#E53258] text-white flex items-center justify-center shadow-lg shadow-rose-200/50 ml-auto hover:bg-[#D42247] transition-all hover:scale-105 active:scale-95" title="Ngắt phiên nguy hiểm">
+                                                            <Icons.Warning className="w-5 h-5" />
+                                                        </button>
+                                                    ) : (
+                                                        <button onClick={() => handleKill(s._id)} className="text-[#E53258] hover:text-[#D42247] ml-auto flex items-center justify-center p-2 transition-colors hover:scale-110" title="Ngắt kết nối">
+                                                            <Icons.Logout />
+                                                        </button>
+                                                    )
+                                                ) : (
+                                                    <span className="text-gray-400 text-[12px] font-bold">N/A</span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
 
                         {/* Pagination */}
-                        <div className="flex justify-between items-center mt-2 px-8 pb-4 pt-4 border-t border-gray-50">
-                            <span className="text-[13px] text-gray-500 font-bold tracking-wide">
-                                Hiển thị 1 - 25 trong số 1,284 phiên
-                            </span>
-                            <div className="flex items-center gap-1">
-                                <button className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors">
-                                    <Icons.ChevronLeft />
-                                </button>
-                                <button className="w-8 h-8 rounded-full flex items-center justify-center font-bold bg-[#B21C3A] text-white shadow-md">1</button>
-                                <button className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-gray-500 hover:bg-gray-100 transition-colors">2</button>
-                                <button className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-gray-500 hover:bg-gray-100 transition-colors">3</button>
-                                <button className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors">
-                                    <Icons.ChevronRight />
-                                </button>
+                        {totalPages > 0 && (
+                            <div className="flex justify-between items-center mt-2 px-8 pb-4 pt-4 border-t border-gray-50">
+                                <span className="text-[13px] text-gray-500 font-bold tracking-wide">
+                                    Hiển thị {sessions.length > 0 ? (page - 1) * limit + 1 : 0} - {Math.min(page * limit, total)} trong số {total} phiên
+                                </span>
+                                <div className="flex items-center gap-1">
+                                    <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors disabled:opacity-30">
+                                        <Icons.ChevronLeft />
+                                    </button>
+                                    
+                                    {Array.from({ length: totalPages }).map((_, i) => {
+                                        const p = i + 1;
+                                        if (p < page - 1 || p > page + 1) {
+                                            if (p === 1 || p === totalPages) {
+                                                return (
+                                                    <button key={p} onClick={() => setPage(p)} className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-gray-500 hover:bg-gray-100 transition-colors">
+                                                        {p}
+                                                    </button>
+                                                )
+                                            }
+                                            if (p === page - 2 || p === page + 2) {
+                                                return <span key={p} className="w-8 h-8 flex items-center justify-center font-bold text-gray-400">...</span>
+                                            }
+                                            return null;
+                                        }
+                                        return (
+                                            <button key={p} onClick={() => setPage(p)} className={`w-8 h-8 rounded-full flex items-center justify-center font-bold transition-colors ${page === p ? 'bg-[#B21C3A] text-white shadow-md' : 'text-gray-500 hover:bg-gray-100'}`}>
+                                                {p}
+                                            </button>
+                                        )
+                                    })}
+
+                                    <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors disabled:opacity-30">
+                                        <Icons.ChevronRight />
+                                    </button>
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </div>
 
                     {/* Bottom Stats Cards */}

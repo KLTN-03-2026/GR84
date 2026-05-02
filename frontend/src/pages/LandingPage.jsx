@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { images } from '../assets/images';
+import NeonHeartBackground from '../components/NeonHeartBackground';
 
 const LandingPage = () => {
   const [activeTab, setActiveTab] = useState('discover');
   const [activeRuleTab, setActiveRuleTab] = useState('ho-so');
+  const [openAccordion, setOpenAccordion] = useState(-1);
   const [imageError, setImageError] = useState(false);
   const [aiFeatureError, setAiFeatureError] = useState(false);
   const [premiumImageError, setPremiumImageError] = useState(false);
@@ -165,16 +167,11 @@ const LandingPage = () => {
     },
   };
 
-  const openRegisterPage = () => {
-    window.location.href = '/register';
-  };
 
-  const openLoginPage = () => {
-    window.location.href = '/login';
-  };
 
   return (
     <div className="min-h-screen relative overflow-hidden bg-gradient-to-b from-rose-50 via-pink-50/40 to-sky-50/30">
+      <NeonHeartBackground />
       <div className="pointer-events-none absolute -top-24 -left-24 w-72 h-72 rounded-full bg-primary-100/70 blur-3xl" />
       <div className="pointer-events-none absolute top-24 -right-24 w-80 h-80 rounded-full bg-secondary-100/60 blur-3xl" />
 
@@ -215,14 +212,14 @@ const LandingPage = () => {
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto mt-3 md:hidden overflow-x-auto scrollbar-hide">
-          <nav className="inline-flex items-center rounded-full border border-rose-100 bg-rose-50/80 px-2 py-1 shadow-sm min-w-max">
+        <div className="max-w-7xl mx-auto mt-3 md:hidden">
+          <nav className="flex items-center justify-center rounded-full border border-rose-100 bg-rose-50/80 px-2 py-1 shadow-sm flex-wrap gap-1">
             {navItems.map((item) => (
               <button
                 key={`mobile-${item.id}`}
                 type="button"
                 onClick={() => setActiveTab(item.id)}
-                className={`px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-colors ${
+                className={`px-3 py-2 rounded-full text-xs font-semibold transition-colors ${
                   activeTab === item.id
                     ? 'bg-white text-rose-600 border border-rose-100 shadow-sm'
                     : 'text-gray-500 hover:text-gray-800'
@@ -258,18 +255,18 @@ const LandingPage = () => {
                 </p>
 
                 <div className="mt-7 flex flex-wrap gap-3" data-aos="fade-up" data-aos-delay="300" data-aos-duration="900">
-                  <button
-                    onClick={openLoginPage}
+                  <Link
+                    to="/login"
                     className="px-6 py-3 rounded-full bg-gradient-to-r from-rose-500 to-pink-500 text-white text-sm sm:text-base font-semibold shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200"
                   >
                     Bắt Đầu Ngay
-                  </button>
-                  <button
-                    onClick={openRegisterPage}
+                  </Link>
+                  <Link
+                    to="/register"
                     className="px-6 py-3 rounded-full bg-rose-100 text-gray-700 text-sm sm:text-base font-semibold hover:bg-rose-200 transition-colors duration-200"
                   >
                     Khám phá AI
-                  </button>
+                  </Link>
                 </div>
               </div>
 
@@ -364,8 +361,8 @@ const LandingPage = () => {
 
                 <article className="rounded-[1.6rem] bg-gradient-to-br from-primary-50 via-white to-secondary-50 p-6 sm:p-7 border border-primary-200 flex flex-col shadow-[0_14px_34px_rgba(236,72,153,0.16)] hover:shadow-[0_20px_40px_rgba(236,72,153,0.22)] transition-all duration-300" data-aos="fade-up" data-aos-delay="300" data-aos-duration="900">
                   <div className="w-10 h-10 rounded-full bg-gradient-to-r from-primary-100 to-secondary-100 text-primary-700 flex items-center justify-center mb-5 border border-white shadow-sm">
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 14h.01M16 10h.01M9 16h6M7 20h10a2 2 0 002-2V6a2 2 0 00-2-2H7a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
                     </svg>
                   </div>
 
@@ -432,12 +429,12 @@ const LandingPage = () => {
                 Bạn đã sẵn sàng để yêu?
               </h3>
 
-              <button
-                onClick={openRegisterPage}
-                className="mt-8 px-8 sm:px-12 py-3.5 rounded-full bg-gradient-to-r from-rose-500 to-pink-500 text-white text-base sm:text-lg font-bold shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200"
+              <Link
+                to="/register"
+                className="inline-block mt-8 px-8 sm:px-12 py-3.5 rounded-full bg-gradient-to-r from-rose-500 to-pink-500 text-white text-base sm:text-lg font-bold shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200"
               >
                 Tạo Tài Khoản Miễn Phí
-              </button>
+              </Link>
 
               <p className="mt-8 text-xs sm:text-sm text-gray-400">
                 Bằng cách tham gia, bạn đồng ý với Điều khoản và Chính sách bảo mật của chúng tôi.
@@ -448,19 +445,261 @@ const LandingPage = () => {
 
         {/* CÁC TAB KHÁC: Đã được bổ sung hiệu ứng AOS */}
         {activeTab === 'about' && (
-          <section className="max-w-7xl mx-auto py-10 lg:py-14" data-aos="fade-up" data-aos-duration="800">
-            <div className="rounded-3xl bg-white border border-primary-100 shadow-sm p-8 sm:p-10 text-center">
-              <h1 className="text-2xl sm:text-3xl font-black text-gray-900">Về Chúng Tôi</h1>
-              <p className="mt-4 text-base text-gray-600">Trang này đang được cập nhật nội dung.</p>
+          <section className="max-w-5xl mx-auto py-10 lg:py-14">
+            {/* HEADLINE */}
+            <div className="text-center mb-12 lg:mb-16">
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-gray-900 leading-tight mb-6">
+                Tình Yêu Thực Sự
+                <span className="block bg-gradient-to-r from-rose-500 to-pink-500 bg-clip-text text-transparent">
+                  Bắt Đầu Từ Sự Tin Tưởng
+                </span>
+              </h1>
+              <div className="w-16 h-1 bg-rose-500 rounded-full mx-auto mb-8"></div>
+              <p className="text-lg sm:text-xl text-gray-600 leading-relaxed max-w-2xl mx-auto">
+                LoveAI không chỉ là một ứng dụng hẹn hò. Chúng tôi là một không gian an toàn, minh bạch và lãng mạn nơi những tâm hồn đồng điệu gặp gỡ và xây dựng những mối quan hệ có ý nghĩa.
+              </p>
+            </div>
+
+            {/* INTRO PARAGRAPH */}
+            <div className="bg-white border border-rose-100 rounded-2xl p-8 sm:p-10 mb-12 lg:mb-16">
+              <p className="text-base sm:text-lg text-gray-700 leading-relaxed">
+                Chúng tôi sinh ra từ một câu hỏi đơn giản: <span className="font-bold text-rose-600">"Tại sao tìm kiếm tình yêu lại phải khó khăn và nguy hiểm?"</span> Với hơn 5 năm nghiên cứu và phát triển, LoveAI kết hợp trí tuệ nhân tạo tiên tiến, công nghệ sinh trắc học và các nguyên tắc bảo mật quốc tế để tạo ra một nền tảng hẹn hò mà bạn có thể tin tưởng hoàn toàn.
+              </p>
+            </div>
+
+            {/* 3 CORE FEATURES - GRID CARDS */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 lg:mb-16">
+              <div className="bg-white border border-rose-100 rounded-2xl p-7 sm:p-8 hover:border-rose-200 transition-colors duration-300">
+                <div className="text-5xl mb-5">🧠</div>
+                <h3 className="text-xl font-bold text-gray-900 mb-4">AI Hiểu Bạn Sâu Sắc</h3>
+                <p className="text-gray-600 leading-relaxed">Công nghệ Machine Learning của chúng tôi phân tích sở thích, giá trị sống và tính cách của bạn để tìm ra những người thực sự phù hợp. Không phải ngẫu nhiên, mà là khoa học.</p>
+              </div>
+
+              <div className="bg-white border border-rose-100 rounded-2xl p-7 sm:p-8 hover:border-rose-200 transition-colors duration-300">
+                <div className="text-5xl mb-5">🛡️</div>
+                <h3 className="text-xl font-bold text-gray-900 mb-4">Bảo Mật 100% Người Thật</h3>
+                <p className="text-gray-600 leading-relaxed">Công nghệ sinh trắc học khuôn mặt (Liveness Detection) xác thực mỗi người dùng là thật. Chúng tôi chống giả mạo, catfishing và lừa đảo với độ chính xác 99.9%.</p>
+              </div>
+
+              <div className="bg-white border border-rose-100 rounded-2xl p-7 sm:p-8 hover:border-rose-200 transition-colors duration-300">
+                <div className="text-5xl mb-5">💬</div>
+                <h3 className="text-xl font-bold text-gray-900 mb-4">Kết Nối Thực Tế & An Toàn</h3>
+                <p className="text-gray-600 leading-relaxed">Video call, nhắn tin real-time và các công cụ giao tiếp được mã hóa end-to-end. Bạn có toàn quyền kiểm soát, báo cáo và chặn bất cứ lúc nào.</p>
+              </div>
+            </div>
+
+            {/* VALUES SECTION */}
+            <div className="bg-gradient-to-r from-rose-50 to-pink-50 border border-rose-100 rounded-2xl p-8 sm:p-10 mb-12 lg:mb-16">
+              <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-8 text-center">Giá Trị Cốt Lõi Của Chúng Tôi</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="flex gap-4">
+                  <div className="flex-shrink-0">
+                    <div className="flex items-center justify-center h-10 w-10 rounded-full bg-rose-500 text-white font-bold">✓</div>
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-bold text-gray-900 mb-2">An Toàn Tuyệt Đối</h4>
+                    <p className="text-gray-600">Xác thực 100% người dùng thực, chống giả mạo và lừa đảo với công nghệ tiên tiến.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-4">
+                  <div className="flex-shrink-0">
+                    <div className="flex items-center justify-center h-10 w-10 rounded-full bg-rose-500 text-white font-bold">✓</div>
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-bold text-gray-900 mb-2">Minh Bạch & Công Bằng</h4>
+                    <p className="text-gray-600">Không ẩn giấu, không phí ẩn. Mọi người đều có cơ hội bình đẳng để tìm thấy tình yêu.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-4">
+                  <div className="flex-shrink-0">
+                    <div className="flex items-center justify-center h-10 w-10 rounded-full bg-rose-500 text-white font-bold">✓</div>
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-bold text-gray-900 mb-2">Tôn Trọng Quyền Riêng Tư</h4>
+                    <p className="text-gray-600">Dữ liệu của bạn được mã hóa end-to-end. Chúng tôi không bao giờ bán hoặc chia sẻ thông tin.</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-4">
+                  <div className="flex-shrink-0">
+                    <div className="flex items-center justify-center h-10 w-10 rounded-full bg-rose-500 text-white font-bold">✓</div>
+                  </div>
+                  <div>
+                    <h4 className="text-lg font-bold text-gray-900 mb-2">Đổi Mới Liên Tục</h4>
+                    <p className="text-gray-600">Chúng tôi luôn cập nhật công nghệ để mang đến trải nghiệm tốt nhất cho bạn.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* STATS SECTION */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 lg:mb-16">
+              <div className="bg-white border border-rose-100 rounded-2xl p-8 text-center">
+                <div className="text-4xl font-black text-rose-500 mb-2">5K+</div>
+                <p className="text-gray-600 font-semibold">Cặp Đôi Ghép Thành Công Mỗi Ngày</p>
+              </div>
+              <div className="bg-white border border-rose-100 rounded-2xl p-8 text-center">
+                <div className="text-4xl font-black text-rose-500 mb-2">99.9%</div>
+                <p className="text-gray-600 font-semibold">Độ Chính Xác Xác Thực Người Thật</p>
+              </div>
+              <div className="bg-white border border-rose-100 rounded-2xl p-8 text-center">
+                <div className="text-4xl font-black text-rose-500 mb-2">24/7</div>
+                <p className="text-gray-600 font-semibold">Hỗ Trợ Khách Hàng Luôn Sẵn Sàng</p>
+              </div>
+            </div>
+
+            {/* CTA SECTION */}
+            <div className="bg-gradient-to-r from-rose-500 to-pink-500 rounded-2xl p-10 sm:p-12 text-center">
+              <h2 className="text-2xl sm:text-3xl font-bold text-white mb-4">Sẵn Sàng Tìm Thấy Tình Yêu Đích Thực?</h2>
+              <p className="text-white/90 text-lg mb-8 max-w-2xl mx-auto">Hôm nay là ngày đầu tiên của phần còn lại của cuộc đời bạn. Hãy bắt đầu hành trình tìm kiếm tình yêu an toàn và chân thành.</p>
+              <Link to="/register" className="inline-block px-8 py-4 bg-white text-rose-600 font-bold rounded-full hover:bg-gray-50 transition-colors duration-200 text-lg">
+                Tạo Tài Khoản Miễn Phí Ngay
+              </Link>
             </div>
           </section>
         )}
 
         {activeTab === 'support' && (
-          <section className="max-w-7xl mx-auto py-10 lg:py-14" data-aos="fade-up" data-aos-duration="800">
-            <div className="rounded-3xl bg-white border border-primary-100 shadow-sm p-8 sm:p-10 text-center">
-              <h1 className="text-2xl sm:text-3xl font-black text-gray-900">Hỗ Trợ</h1>
-              <p className="mt-4 text-base text-gray-600">Trang này đang được cập nhật nội dung.</p>
+          <section className="max-w-4xl mx-auto py-10 lg:py-14">
+            {/* GREETING SECTION */}
+            <div className="text-center mb-12 lg:mb-16">
+              <h1 className="text-4xl sm:text-5xl font-black text-gray-900 mb-4">Chúng Tôi Ở Đây Để Giúp Bạn 💝</h1>
+              <p className="text-lg text-gray-600 max-w-2xl mx-auto">Bất kể bạn có câu hỏi hay gặp vấn đề gì, đội ngũ hỗ trợ của LoveAI luôn sẵn sàng. Chúng tôi cam kết phản hồi nhanh chóng và giải quyết mọi vấn đề một cách chuyên nghiệp.</p>
+            </div>
+
+            {/* CONTACT METHODS */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 lg:mb-16">
+              <div className="bg-white border border-rose-100 rounded-2xl p-7 sm:p-8">
+                <div className="text-4xl mb-4">📧</div>
+                <h3 className="text-lg font-bold text-gray-900 mb-2">Email Hỗ Trợ</h3>
+                <p className="text-sm text-gray-600 mb-4">Gửi câu hỏi hoặc báo cáo vấn đề</p>
+                <div className="bg-rose-50 border border-rose-100 rounded-lg p-3 mb-3">
+                  <p className="text-sm font-semibold text-rose-700">support@loveai.com</p>
+                </div>
+                <p className="text-xs text-gray-500 font-semibold">Phản hồi trong 24 giờ</p>
+              </div>
+
+              <div className="bg-white border border-rose-100 rounded-2xl p-7 sm:p-8">
+                <div className="text-4xl mb-4">🛡️</div>
+                <h3 className="text-lg font-bold text-gray-900 mb-2">An Toàn & Báo Cáo</h3>
+                <p className="text-sm text-gray-600 mb-4">Báo cáo giả mạo, lừa đảo, hoặc hành vi không phù hợp</p>
+                <div className="bg-rose-50 border border-rose-100 rounded-lg p-3 mb-3">
+                  <p className="text-sm font-semibold text-rose-700">safety@loveai.com</p>
+                </div>
+                <p className="text-xs text-gray-500 font-semibold">Ưu tiên xử lý ngay lập tức</p>
+              </div>
+
+              <div className="bg-white border border-rose-100 rounded-2xl p-7 sm:p-8">
+                <div className="text-4xl mb-4">💬</div>
+                <h3 className="text-lg font-bold text-gray-900 mb-2">Chat Trực Tiếp</h3>
+                <p className="text-sm text-gray-600 mb-4">Trò chuyện với đội hỗ trợ của chúng tôi</p>
+                <div className="bg-rose-50 border border-rose-100 rounded-lg p-3 mb-3">
+                  <p className="text-sm font-semibold text-rose-700">Mở ứng dụng &gt; Cài đặt &gt; Hỗ trợ</p>
+                </div>
+                <p className="text-xs text-gray-500 font-semibold">Phản hồi trong 2 giờ</p>
+              </div>
+            </div>
+
+            {/* FAQ SECTION */}
+            <div className="mb-12 lg:mb-16">
+              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-2 text-center">Câu Hỏi Thường Gặp</h2>
+              <div className="w-16 h-1 bg-rose-500 rounded-full mx-auto mb-10"></div>
+
+              <div className="space-y-4">
+                <div className="bg-white border border-rose-100 rounded-2xl overflow-hidden hover:border-rose-200 transition-colors duration-300">
+                  <button onClick={() => setOpenAccordion(openAccordion === 0 ? -1 : 0)} className="w-full px-7 sm:px-8 py-6 flex items-center justify-between hover:bg-rose-50/50 transition-colors duration-200">
+                    <h3 className="text-base sm:text-lg font-bold text-gray-900 text-left">🎯 Làm thế nào để AI của LoveAI ghép đôi tôi với người phù hợp?</h3>
+                    <div className={`flex-shrink-0 ml-4 transition-transform duration-300 ${openAccordion === 0 ? 'rotate-180' : ''}`}>
+                      <svg className="w-6 h-6 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                      </svg>
+                    </div>
+                  </button>
+                  {openAccordion === 0 && (
+                    <div className="px-7 sm:px-8 py-6 bg-rose-50/50 border-t border-rose-100">
+                      <p className="text-gray-700 leading-relaxed text-base">Thuật toán AI của chúng tôi phân tích hơn 200 yếu tố từ hồ sơ của bạn: sở thích, giá trị sống, mục tiêu trong tình yêu, lối sống, và thậm chí cả cách bạn tương tác trên ứng dụng. Chúng tôi không chỉ so khớp dựa trên hình ảnh hay tuổi tác, mà tìm kiếm những người có tâm hồn đồng điệu với bạn. Kết quả? Tỷ lệ kết hôn của chúng tôi cao gấp 3 lần so với các ứng dụng hẹn hò khác.</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-white border border-rose-100 rounded-2xl overflow-hidden hover:border-rose-200 transition-colors duration-300">
+                  <button onClick={() => setOpenAccordion(openAccordion === 1 ? -1 : 1)} className="w-full px-7 sm:px-8 py-6 flex items-center justify-between hover:bg-rose-50/50 transition-colors duration-200">
+                    <h3 className="text-base sm:text-lg font-bold text-gray-900 text-left">🛡️ Làm cách nào để báo cáo tài khoản giả mạo hoặc lừa đảo?</h3>
+                    <div className={`flex-shrink-0 ml-4 transition-transform duration-300 ${openAccordion === 1 ? 'rotate-180' : ''}`}>
+                      <svg className="w-6 h-6 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                      </svg>
+                    </div>
+                  </button>
+                  {openAccordion === 1 && (
+                    <div className="px-7 sm:px-8 py-6 bg-rose-50/50 border-t border-rose-100">
+                      <p className="text-gray-700 leading-relaxed text-base">Nếu bạn nghi ngờ ai đó không phải là người thật hoặc có hành vi lừa đảo, hãy: (1) Nhấn vào biểu tượng "..." trên hồ sơ của họ, (2) Chọn "Báo cáo", (3) Chọn lý do (giả mạo, lừa đảo, hành vi không phù hợp), (4) Cung cấp chi tiết nếu cần. Đội ngũ an toàn của chúng tôi sẽ xem xét trong vòng 24 giờ. Nếu xác nhận, tài khoản sẽ bị khóa ngay lập tức. Bạn cũng có thể liên hệ trực tiếp với safety@loveai.com để báo cáo các vấn đề nghiêm trọng.</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-white border border-rose-100 rounded-2xl overflow-hidden hover:border-rose-200 transition-colors duration-300">
+                  <button onClick={() => setOpenAccordion(openAccordion === 2 ? -1 : 2)} className="w-full px-7 sm:px-8 py-6 flex items-center justify-between hover:bg-rose-50/50 transition-colors duration-200">
+                    <h3 className="text-base sm:text-lg font-bold text-gray-900 text-left">📸 Tôi gặp lỗi khi tải ảnh lên hồ sơ. Phải làm sao?</h3>
+                    <div className={`flex-shrink-0 ml-4 transition-transform duration-300 ${openAccordion === 2 ? 'rotate-180' : ''}`}>
+                      <svg className="w-6 h-6 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                      </svg>
+                    </div>
+                  </button>
+                  {openAccordion === 2 && (
+                    <div className="px-7 sm:px-8 py-6 bg-rose-50/50 border-t border-rose-100">
+                      <p className="text-gray-700 leading-relaxed text-base">Lỗi tải ảnh thường do: (1) Kích thước file quá lớn (tối đa 10MB), (2) Định dạng không hỗ trợ (chỉ JPG, PNG, WebP), (3) Kết nối internet yếu. Hãy thử: - Nén ảnh trước khi tải (dùng công cụ online miễn phí), - Kiểm tra kết nối WiFi/4G, - Xóa cache ứng dụng (Cài đặt &gt; Ứng dụng &gt; LoveAI &gt; Xóa cache), - Cập nhật ứng dụng lên phiên bản mới nhất. Nếu vẫn không được, liên hệ support@loveai.com kèm ảnh lỗi.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* ADDITIONAL HELP SECTION */}
+            <div className="bg-gradient-to-r from-rose-50 to-pink-50 border border-rose-100 rounded-2xl p-8 sm:p-10 mb-12 lg:mb-16">
+              <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-6 text-center">Bạn Cần Thêm Trợ Giúp?</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-white border border-rose-100 rounded-xl p-6">
+                  <h4 className="text-lg font-bold text-gray-900 mb-3">📚 Hướng Dẫn Sử Dụng</h4>
+                  <p className="text-gray-600 mb-4">Khám phá các hướng dẫn chi tiết về cách sử dụng mọi tính năng của LoveAI.</p>
+                  <Link to="#" className="text-rose-600 font-semibold hover:text-rose-700 transition-colors">Xem Hướng Dẫn →</Link>
+                </div>
+
+                <div className="bg-white border border-rose-100 rounded-xl p-6">
+                  <h4 className="text-lg font-bold text-gray-900 mb-3">🔒 Chính Sách Bảo Mật</h4>
+                  <p className="text-gray-600 mb-4">Tìm hiểu cách chúng tôi bảo vệ dữ liệu và quyền riêng tư của bạn.</p>
+                  <Link to="#" className="text-rose-600 font-semibold hover:text-rose-700 transition-colors">Đọc Chính Sách →</Link>
+                </div>
+
+                <div className="bg-white border border-rose-100 rounded-xl p-6">
+                  <h4 className="text-lg font-bold text-gray-900 mb-3">⚖️ Điều Khoản Dịch Vụ</h4>
+                  <p className="text-gray-600 mb-4">Hiểu rõ các điều khoản và điều kiện khi sử dụng nền tảng LoveAI.</p>
+                  <Link to="#" className="text-rose-600 font-semibold hover:text-rose-700 transition-colors">Xem Điều Khoản →</Link>
+                </div>
+
+                <div className="bg-white border border-rose-100 rounded-xl p-6">
+                  <h4 className="text-lg font-bold text-gray-900 mb-3">🌍 Nguyên Tắc Cộng Đồng</h4>
+                  <p className="text-gray-600 mb-4">Tìm hiểu các quy tắc để tạo một cộng đồng an toàn và tôn trọng.</p>
+                  <Link to="#" className="text-rose-600 font-semibold hover:text-rose-700 transition-colors">Xem Nguyên Tắc →</Link>
+                </div>
+              </div>
+            </div>
+
+            {/* FINAL CTA */}
+            <div className="bg-white border border-rose-100 rounded-2xl p-8 sm:p-10 text-center">
+              <h3 className="text-2xl font-bold text-gray-900 mb-4">Vẫn Chưa Tìm Được Câu Trả Lời?</h3>
+              <p className="text-gray-600 mb-6 max-w-2xl mx-auto">Đừng lo lắng! Đội ngũ hỗ trợ của chúng tôi luôn sẵn sàng giúp bạn. Hãy liên hệ trực tiếp qua email hoặc chat.</p>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <a href="mailto:support@loveai.com" className="px-6 py-3 bg-rose-500 text-white font-bold rounded-full hover:bg-rose-600 transition-colors duration-200">
+                  Gửi Email Cho Chúng Tôi
+                </a>
+                <Link to="/register" className="px-6 py-3 bg-rose-100 text-rose-700 font-bold rounded-full hover:bg-rose-200 transition-colors duration-200">
+                  Bắt Đầu Ngay
+                </Link>
+              </div>
             </div>
           </section>
         )}
@@ -540,19 +779,19 @@ const LandingPage = () => {
 
       {/* FOOTER: Bổ sung hiệu ứng fade-up */}
       <footer className="bg-primary-50/90 backdrop-blur border-t border-primary-100 px-5 lg:px-10 py-8" data-aos="fade-up" data-aos-duration="800">
-        <div className="max-w-7xl mx-auto flex flex-col lg:flex-row items-center justify-between gap-6 lg:gap-8">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-4 sm:gap-6 lg:gap-8">
           <Link to="/" className="text-2xl font-black text-rose-500 tracking-tight">
             LoveAI
           </Link>
 
-          <nav className="flex items-center gap-6 sm:gap-8 text-gray-600 font-semibold uppercase tracking-wide text-sm sm:text-base">
-            <button type="button" className="hover:text-gray-900 transition-colors">Về chúng tôi</button>
-            <button type="button" className="hover:text-gray-900 transition-colors">An toàn</button>
-            <button type="button" className="hover:text-gray-900 transition-colors">Hỗ trợ</button>
+          <nav className="flex items-center justify-center gap-4 sm:gap-6 lg:gap-8 text-gray-600 font-semibold uppercase tracking-wide text-xs sm:text-sm">
+            <button type="button" className="hover:text-gray-900 transition-colors whitespace-nowrap">Về chúng tôi</button>
+            <button type="button" className="hover:text-gray-900 transition-colors whitespace-nowrap">An toàn</button>
+            <button type="button" className="hover:text-gray-900 transition-colors whitespace-nowrap">Hỗ trợ</button>
           </nav>
 
-          <p className="text-gray-400 text-sm text-center lg:text-right">
-            © 2026 LoveAI Hẹn hò cao cấp. Được thiết kế để kết nối.
+          <p className="text-gray-400 text-xs sm:text-sm text-center">
+            © 2026 LoveAI
           </p>
         </div>
       </footer>

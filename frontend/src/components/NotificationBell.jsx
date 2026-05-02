@@ -111,6 +111,17 @@ const NotificationBell = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    const handleProfileMenuOpened = () => {
+      setIsOpen(false);
+    };
+
+    window.addEventListener('navbar:profileMenuOpened', handleProfileMenuOpened);
+    return () => {
+      window.removeEventListener('navbar:profileMenuOpened', handleProfileMenuOpened);
+    };
+  }, []);
+
   // Play notification sound
   const playNotificationSound = () => {
     try {
@@ -158,7 +169,15 @@ const NotificationBell = () => {
     <div className="relative" ref={dropdownRef}>
       {/* Bell Button - Modern Design */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          setIsOpen((prev) => {
+            const next = !prev;
+            if (next) {
+              window.dispatchEvent(new CustomEvent('navbar:notificationOpened'));
+            }
+            return next;
+          });
+        }}
         className={`
           relative w-10 h-10 
           flex items-center justify-center 

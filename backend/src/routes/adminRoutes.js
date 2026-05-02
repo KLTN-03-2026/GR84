@@ -82,4 +82,15 @@ router.get('/sessions/stats', authenticate, authorizeAdmin, getSessionStats);
 router.post('/sessions/bulk-kill', authenticate, authorizeAdmin, bulkKillSessions);
 router.post('/sessions/:id/kill', authenticate, authorizeAdmin, killSession);
 
+// --- Route Nhật ký quản trị (PB24) ---
+import {
+  getAdminLogs,
+  exportExcel,
+  exportPDF
+} from '../controllers/admin/adminLogController.js';
+
+router.get('/logs', authenticate, authorizeAdmin, getAdminLogs);
+router.get('/logs/export/excel', authenticate, authorizeAdmin, exportExcel);
+router.get('/logs/export/pdf', authenticate, authorizeAdmin, exportPDF);
+
 export default router;

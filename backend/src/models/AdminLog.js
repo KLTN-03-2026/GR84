@@ -1,54 +1,84 @@
-/**
- * AdminLog Model - Schema mới
- * Lưu trữ nhật ký hành động admin
- */
-
 import mongoose from 'mongoose';
 
 const adminLogSchema = new mongoose.Schema({
-  adminId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+  adminId: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'User', 
+    required: true 
   },
-  action: {
-    type: String,
-    required: true
+  adminName: { 
+    type: String, 
+    required: true 
+  }, 
+  adminRole: { 
+    type: String, 
+    required: true 
+  }, 
+  action: { 
+    type: String, 
+    required: true 
   },
-  targetId: {
-    type: mongoose.Schema.Types.ObjectId
+  status: { 
+    type: String, 
+    enum: ['Thành công', 'Thất bại'], 
+    required: true 
+  }, 
+  targetId: { 
+    type: mongoose.Schema.Types.ObjectId 
   },
-  description: {
-    type: String,
-    default: ''
+  description: { 
+    type: String, 
+    default: '' 
   },
-  deviceInfo: {
-    type: String,
-    default: ''
+  deviceInfo: { 
+    type: String, 
+    default: '' 
   },
-  metadata: {
-    type: mongoose.Schema.Types.Mixed,
-    default: {}
+  metadata: { 
+    type: mongoose.Schema.Types.Mixed, 
+    default: {} 
   }
-}, {
-  timestamps: true
+}, { timestamps: true });
+
+// Optimize query
+adminLogSchema.index({ action: 1, createdAt: -1 });
+adminLogSchema.index({ createdAt: -1 });
+
+/**
+ * SECURITY ALERT: Khóa Read-only cấp độ Database
+ */
+adminLogSchema.pre(['updateOne', 'findOneAndUpdate', 'updateMany', 'deleteOne', 'findOneAndDelete', 'deleteMany'], function(next) {
+  next(new Error('SECURITY ALERT: Dữ liệu nhật ký là nguyên bản. Nghiêm cấm sửa/xóa!'));
 });
 
-// Index
-adminLogSchema.index({ adminId: 1 });
-adminLogSchema.index({ createdAt: -1 });
-adminLogSchema.index({ action: 1 });
+/**
+ * Ghi log hành động admin (PB24)
+ * Tự động trích xuất Snapshot Tên, Chức vụ và thông tin thiết bị/IP
+ */
+adminLogSchema.statics.logAction = async function(user, action, status, description, req = null, options = {}) {
+  try {
+    if (!user) return null;
 
-// Static: log hành động admin
-adminLogSchema.statics.logAction = async function(adminId, action, options = {}) {
-  return this.create({
-    adminId,
-    action,
-    targetId: options.targetId,
-    description: options.description || '',
-    deviceInfo: options.deviceInfo || '',
-    metadata: options.metadata || {}
-  });
+    const logData = {
+      adminId: user._id,
+      adminName: user.fullName || user.username || 'Admin',
+      adminRole: user.role || 'admin',
+      action,
+      status,
+      description,
+      targetId: options.targetId || null,
+      deviceInfo: req ? (req.headers['user-agent'] || 'N/A') : (options.deviceInfo || 'Unknown'),
+      metadata: {
+        ...(options.metadata || {}),
+        ip: req ? (req.ip || req.headers['x-forwarded-for']) : undefined
+      }
+    };
+
+    return await this.create(logData);
+  } catch (error) {
+    console.error('LOGGING ERROR:', error.message);
+    return null;
+  }
 };
 
 export default mongoose.model('AdminLog', adminLogSchema);

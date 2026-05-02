@@ -11,12 +11,14 @@ const Login = () => {
   const adminStore = useAdminAuthStore();
 
   const [formData, setFormData] = useState({
-    email: '',
+    identifier: '', // Combined email/username field
     password: '',
   });
   const [showPassword, setShowPassword] = useState(false);
-  const [emailError, setEmailError] = useState('');
+  const [identifierError, setIdentifierError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
   const [sessionMessage, setSessionMessage] = useState('');
+  const [inputType, setInputType] = useState('text'); // 'email' or 'username'
 
   // Handle redirect reason from legacy token handling
   useEffect(() => {
@@ -51,44 +53,85 @@ const Login = () => {
     return import.meta.env.VITE_API_URL || 'http://localhost:5000';
   };
 
-  const validateEmail = (email) => {
-    if (!email) {
-      return 'Email là bắt buộc';
-    } else if (!/\S+@\S+\.\S+/.test(email)) {
-      return 'Email không hợp lệ';
+  // Validate identifier (email or username)
+  const validateIdentifier = (value) => {
+    if (!value || value.trim() === '') {
+      return 'Vui lòng nhập thông tin này';
     }
+
+    // Check if it contains @ symbol (email)
+    if (value.includes('@')) {
+      // Validate as email
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(value)) {
+        return 'Định dạng email không hợp lệ';
+      }
+    } else {
+      // Validate as username (no spaces, only alphanumeric and underscore)
+      const usernameRegex = /^[a-zA-Z0-9_]+$/;
+      if (!usernameRegex.test(value)) {
+        return 'Tên người dùng viết không dấu và không có khoảng trắng';
+      }
+    }
+
     return '';
   };
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-    if (e.target.name === 'email') {
-      setEmailError('');
+    const { name, value } = e.target;
+    setFormData({ ...formData, [name]: value });
+
+    // Clear errors immediately on input change (AC05)
+    if (name === 'identifier') {
+      setIdentifierError('');
+      // Detect input type for icon switching
+      setInputType(value.includes('@') ? 'email' : 'username');
     }
+    if (name === 'password') {
+      setPasswordError('');
+    }
+
     if (error) clearError();
     if (adminStore.error && adminStore.clearError) adminStore.clearError();
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    const emailErr = validateEmail(formData.email);
-    if (emailErr) {
-      setEmailError(emailErr);
+    e.preventDefault(); // AC06: Prevent default form submission
+
+    // Validate identifier
+    const identifierErr = validateIdentifier(formData.identifier);
+    if (identifierErr) {
+      setIdentifierError(identifierErr);
+    }
+
+    // Validate password
+    if (!formData.password || formData.password.trim() === '') {
+      setPasswordError('Vui lòng nhập thông tin này');
+    }
+
+    // Block submission if there are errors
+    if (identifierErr || !formData.password) {
       return;
     }
 
     try {
-      const data = await login(formData);
+      const loginData = {
+        email: formData.identifier.trim(),
+        password: formData.password.trim()
+      };
 
-      if (data?.user?.role === 'admin' || data?.user?.role === 'Admin') {
+      const data = await login(loginData);
+
+      if (data?.user?.role === 'admin' || data?.user?.role === 'super_admin') {
         // Log in to admin store to setup admin log & token
-        await adminStore.login(formData);
+        await adminStore.login(loginData);
         navigate('/admin/dashboard');
       } else {
         navigate('/discover');
       }
     } catch (err) {
-      // Error handled by store
+      // AC07: Generic error message for security
+      // Error handled by store, but ensure it's generic
     }
   };
 
@@ -120,14 +163,14 @@ const Login = () => {
               <Link to="/" className="text-3xl font-black text-primary-600 tracking-tight">
                 LoveAI
               </Link>
-              <p className="text-xs text-gray-400 mt-1">The Digital Matchmaker&apos;s Atelier</p>
+              <p className="text-xs text-gray-400 mt-1 hidden lg:block">The Digital Matchmaker's Atelier</p>
             </div>
           </header>
 
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 items-center py-4 lg:py-2 -mt-6 lg:-mt-16">
 
             {/* Left Column: Text & Avatars */}
-            <section>
+            <section className="hidden lg:block">
               <h1
                 className="text-4xl sm:text-5xl font-black text-gray-900 leading-[0.98] max-w-lg"
                 data-aos="fade-right"
@@ -175,7 +218,7 @@ const Login = () => {
             </section>
 
             {/* Right Column: Login Form */}
-            <section className="w-full max-w-[32rem] mx-auto lg:mx-0 lg:ml-auto lg:mr-8 px-3 sm:px-4">
+            <section className="w-full max-w-[32rem] mx-auto lg:mx-0 lg:ml-auto lg:mr-8 px-3 sm:px-4 lg:col-span-1">
               <div
                 className="bg-white rounded-[2rem] shadow-xl border border-primary-100 p-6 sm:p-6"
                 data-aos="fade-left"
@@ -208,29 +251,37 @@ const Login = () => {
                 )}
 
                 <form onSubmit={handleSubmit} className="space-y-3.5">
+                  {/* AC01: Smart Input Interface - Email or Username */}
                   <div>
-                    <label htmlFor="email" className="block text-[11px] tracking-wide font-bold text-gray-500 uppercase mb-1.5">
-                      Email
+                    <label htmlFor="identifier" className="block text-[11px] tracking-wide font-bold text-gray-500 uppercase mb-1.5">
+                      Email hoặc Tên người dùng
                     </label>
                     <div className="relative">
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                        </svg>
+                        {inputType === 'email' ? (
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                          </svg>
+                        ) : (
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                          </svg>
+                        )}
                       </span>
                       <input
                         type="text"
-                        id="email"
-                        name="email"
-                        value={formData.email}
+                        id="identifier"
+                        name="identifier"
+                        value={formData.identifier}
                         onChange={handleChange}
-                        onBlur={() => setEmailError(validateEmail(formData.email))}
-                        className={`w-full h-11 rounded-full bg-primary-50 border pl-11 pr-4 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-300 ${emailError ? 'border-red-500' : 'border-primary-100'}`}
-                        placeholder="email@vi-du.com"
-                        required
+                        className={`w-full h-11 rounded-full bg-primary-50 border pl-11 pr-4 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-300 transition-colors ${identifierError ? 'border-rose-500' : 'border-primary-100'}`}
+                        placeholder="email@vidu.com hoặc name123"
+                        autoComplete="username"
                       />
                     </div>
-                    {emailError && <p className="text-red-500 text-sm mt-1">{emailError}</p>}
+                    {identifierError && (
+                      <p className="text-rose-600 text-xs font-semibold mt-1.5 ml-1">{identifierError}</p>
+                    )}
                   </div>
 
                   <div>
@@ -249,9 +300,9 @@ const Login = () => {
                         name="password"
                         value={formData.password}
                         onChange={handleChange}
-                        className="w-full h-11 rounded-full bg-primary-50 border border-primary-100 pl-11 pr-12 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-300"
+                        className={`w-full h-11 rounded-full bg-primary-50 border pl-11 pr-12 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-300 transition-colors ${passwordError ? 'border-rose-500' : 'border-primary-100'}`}
                         placeholder="••••••••"
-                        required
+                        autoComplete="current-password"
                       />
                       <button
                         type="button"
@@ -270,14 +321,28 @@ const Login = () => {
                         )}
                       </button>
                     </div>
+                    {passwordError && (
+                      <p className="text-rose-600 text-xs font-semibold mt-1.5 ml-1">{passwordError}</p>
+                    )}
                   </div>
 
+                  {/* AC06: Loading state with disabled button */}
                   <button
                     type="submit"
                     disabled={isLoading || adminStore.isLoading}
-                    className="w-full h-11 rounded-full bg-gradient-to-r from-primary-600 to-primary-500 text-white text-base font-bold shadow-md hover:shadow-lg disabled:opacity-60"
+                    className="w-full h-11 rounded-full bg-gradient-to-r from-primary-600 to-primary-500 text-white text-base font-bold shadow-md hover:shadow-lg disabled:opacity-60 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
                   >
-                    {(isLoading || adminStore.isLoading) ? 'Đang đăng nhập...' : 'Đăng nhập'}
+                    {(isLoading || adminStore.isLoading) ? (
+                      <>
+                        <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Đang đăng nhập...
+                      </>
+                    ) : (
+                      'Đăng nhập'
+                    )}
                   </button>
 
                   <div className="flex justify-end">

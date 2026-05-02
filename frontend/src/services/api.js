@@ -16,6 +16,32 @@ const getApiUrl = () => {
 
 const API_URL = getApiUrl();
 
+/**
+ * Get backend base URL (without /api)
+ */
+export const getBackendBaseUrl = () => {
+  const envUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_SOCKET_URL || '';
+  if (envUrl) {
+    return envUrl.replace(/\/api$/, '').replace(/\/$/, '');
+  }
+  return '';
+};
+
+/**
+ * Get full image URL from relative path
+ */
+export const getFullImageUrl = (path) => {
+  if (!path) return '';
+  if (path.startsWith('http') || path.startsWith('blob:') || path.startsWith('data:')) {
+    return path;
+  }
+  
+  const baseUrl = getBackendBaseUrl();
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  
+  return baseUrl ? `${baseUrl}${cleanPath}` : cleanPath;
+};
+
 const api = axios.create({
   baseURL: API_URL,
   headers: {
@@ -139,8 +165,15 @@ export const authService = {
   },
 
   login: async (data) => {
-    // Backend expects: { email, password }
-    const response = await api.post('/auth/login', data);
+    // Backend expects: { email?, password, username? }
+    // The identifier can be email or username - send as email field
+    // Backend searches both email and username fields
+    const loginData = {
+      email: data.email, // identifier (email or username)
+      password: data.password
+    };
+    
+    const response = await api.post('/auth/login', loginData);
     // Backend returns: { success, token, user, message }
     if (response.data.token) {
       localStorage.setItem('token', response.data.token);
@@ -242,7 +275,7 @@ export const userService = {
     const formData = new FormData();
     Object.keys(data).forEach((key) => {
       if (key === 'avatar' && data[key]) {
-        formData.append(key, data[key]);
+        formData.append(key, data[key], 'avatar.jpg');
       } else if (data[key] !== undefined) {
         formData.append(
           key,
@@ -251,7 +284,7 @@ export const userService = {
       }
     });
 
-    const response = await api.put('/users/profile', formData, {
+    const response = await api.post('/users/profile/update-verify', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     return response.data;
@@ -265,6 +298,13 @@ export const userService = {
   getMatches: async () => {
     const response = await api.get('/users/matches');
     return response.data;
+  },
+  updateProfileAndVerify: (formData) => {
+    return api.post('/users/profile/update-verify', formData, {
+      headers: { 
+        'Content-Type': 'multipart/form-data' 
+      }
+    });
   },
 };
 
@@ -466,6 +506,40 @@ export const adminCategoryService = {
   deleteCategory: async (id) => {
     const response = await api.delete(`/admin/categories/${id}`);
     return response.data;
+  }
+};
+
+export const adminSessionService = {
+  getSessions: async (params) => {
+    const response = await api.get('/admin/sessions', { params });
+    return response.data;
+  },
+  getStats: async () => {
+    const response = await api.get('/admin/sessions/stats');
+    return response.data;
+  },
+  killSession: async (id, reason) => {
+    const response = await api.post(`/admin/sessions/${id}/kill`, { reason });
+    return response.data;
+  },
+  bulkKill: async (sessionIds, reason) => {
+    const response = await api.post('/admin/sessions/bulk-kill', { sessionIds, reason });
+    return response.data;
+  }
+};
+
+export const adminLogService = {
+  getLogs: async (params) => {
+    const response = await api.get('/admin/logs', { params });
+    return response.data;
+  },
+  exportExcel: async (params) => {
+    const response = await api.get('/admin/logs/export/excel', { params, responseType: 'blob' });
+    return response; // Return full response for Blob handling
+  },
+  exportPdf: async (params) => {
+    const response = await api.get('/admin/logs/export/pdf', { params, responseType: 'blob' });
+    return response;
   }
 };
 

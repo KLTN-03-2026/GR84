@@ -114,18 +114,24 @@ matchSchema.statics.findUserMatchesRaw = function(userId) {
 // Kiểm tra user có trong match không
 matchSchema.methods.hasUser = function(userId) {
   const id = userId.toString();
+  const u1Id = this.user1Id?._id ? this.user1Id._id.toString() : this.user1Id?.toString();
+  const u2Id = this.user2Id?._id ? this.user2Id._id.toString() : this.user2Id?.toString();
+  
   return (
-    this.user1Id?.toString() === id ||
-    this.user2Id?.toString() === id ||
-    this.users?.some(u => u.toString() === id)
+    u1Id === id ||
+    u2Id === id ||
+    this.users?.some(u => (u._id ? u._id.toString() : u.toString()) === id)
   );
 };
 
 // Lấy user kia trong match
 matchSchema.methods.getOtherUser = function(userId) {
   const id = userId.toString();
-  if (this.user1Id?.toString() === id) return this.user2Id;
-  if (this.user2Id?.toString() === id) return this.user1Id;
+  const u1Id = this.user1Id?._id ? this.user1Id._id.toString() : this.user1Id?.toString();
+  const u2Id = this.user2Id?._id ? this.user2Id._id.toString() : this.user2Id?.toString();
+  
+  if (u1Id === id) return this.user2Id;
+  if (u2Id === id) return this.user1Id;
   return null;
 };
 

@@ -65,6 +65,9 @@ const userSchema = new mongoose.Schema({
     min: [18, 'You must be at least 18 years old'],
     max: [100, 'Age cannot exceed 100']
   },
+  dateOfBirth: {
+    type: Date
+  },
   gender: {
     type: String,
     enum: ['male', 'female', 'other', ''],
@@ -164,7 +167,7 @@ const userSchema = new mongoose.Schema({
   // Role & Security
   role: {
     type: String,
-    enum: ['user', 'premium', 'admin'],
+    enum: ['user', 'premium', 'admin', 'super_admin'],
     default: 'user'
   },
   lastLogin: {

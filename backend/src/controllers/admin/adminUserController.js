@@ -16,7 +16,7 @@ export const getUsers = async (req, res) => {
 
     // Build query: Hỗ trợ tìm kiếm theo email, username, fullName
     const query = {};
-    
+
     // Tìm kiếm text
     if (search) {
       query.$or = [
@@ -30,7 +30,7 @@ export const getUsers = async (req, res) => {
     if (role) query.role = role;
     if (gender) query.gender = gender;
     if (status) query.status = status;
-    
+
     // Lọc theo khoảng thời gian tham gia
     if (startDate || endDate) {
       query.createdAt = {};
@@ -79,11 +79,12 @@ export const toggleUserStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const adminId = req.user._id;
+    const requesterRole = req.user.role;
 
-    // Tìm user theo ID
+    // Tìm user mục tiêu
     const user = await User.findById(id);
 
-    // Kiểm tra PB19: "Nếu tài khoản không tồn tại hoặc lỗi hệ thống, báo: Không thể thực hiện thao tác, vui lòng thử lại sau."
+    // PB19: "Nếu tài khoản không tồn tại, báo: Không thể thực hiện thao tác, vui lòng thử lại sau."
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -91,33 +92,38 @@ export const toggleUserStatus = async (req, res) => {
       });
     }
 
-    if (user.role === 'admin') {
-      return res.status(403).json({
-        success: false,
-        message: 'Không thể thao tác trên tài khoản Quản trị viên khác.'
-      });
+    // PB19: Security check - Admin không được đụng vào Admin/SuperAdmin
+    if (requesterRole === 'admin') {
+      if (user.role === 'admin' || user.role === 'super_admin') {
+        // PB24: Ghi log thất bại do vi phạm quyền hạn
+        await AdminLog.logAction(req.user, 'Khóa/Mở khóa tài khoản', 'Thất bại', `Admin cố gắng thao tác trên tài khoản Admin/SuperAdmin (ID: ${user._id})`, req);
+
+        return res.status(403).json({
+          success: false,
+          message: 'Từ chối truy cập: Bạn không có quyền thực hiện hành động này trên tài khoản mục tiêu.'
+        });
+      }
     }
+    // Đối với Super Admin: Toàn quyền (không cần check)
 
     // Toggle trạng thái isLocked
     user.isLocked = !user.isLocked;
-    
-    // Đồng bộ với trường status cho nhất quán
+
+    // Đồng bộ với trường status
     user.status = user.isLocked ? 'banned' : 'active';
 
     // Lưu lại User
     await user.save();
 
-    // PB19 Điều kiện ràng buộc: Ghi nhật ký hệ thống (Logging)
-    const actionStr = user.isLocked ? 'LOCK_ACCOUNT' : 'UNLOCK_ACCOUNT';
-    const descriptionStr = `Admin (ID: ${adminId}) đã ${user.isLocked ? 'khóa' : 'mở khóa'} tài khoản User (ID: ${user._id}, Username: ${user.username}).`;
+    // PB24: Ghi nhật ký hệ thống sử dụng Model mới
+    const actionStr = user.isLocked ? 'Khóa tài khoản' : 'Mở khóa tài khoản';
+    const descriptionStr = `${requesterRole.toUpperCase()} đã ${user.isLocked ? 'khóa' : 'mở khóa'} tài khoản User (Username: ${user.username}, Role: ${user.role}).`;
     
-    await AdminLog.logAction(adminId, actionStr, {
-      targetId: user._id,
-      description: descriptionStr,
-      deviceInfo: req.headers['user-agent'] || 'Unknown Device'
+    await AdminLog.logAction(req.user, actionStr, 'Thành công', descriptionStr, req, {
+      targetId: user._id
     });
 
-    // PB19: "Nếu cập nhật thành công, hệ thống lưu vào CSDL và thông báo: Cập nhật trạng thái tài khoản thành công."
+    // PB19: "Cập nhật trạng thái tài khoản thành công."
     res.json({
       success: true,
       message: 'Cập nhật trạng thái tài khoản thành công.',
@@ -131,7 +137,6 @@ export const toggleUserStatus = async (req, res) => {
 
   } catch (error) {
     console.error('Lỗi khi thay đổi trạng thái User (Admin):', error);
-    // PB19: "Nếu tài khoản không tồn tại hoặc lỗi hệ thống, báo: Không thể thực hiện thao tác, vui lòng thử lại sau."
     res.status(500).json({
       success: false,
       message: 'Không thể thực hiện thao tác, vui lòng thử lại sau.'
@@ -149,36 +154,79 @@ export const updateUserRole = async (req, res) => {
     const { id } = req.params;
     const { role } = req.body;
     const adminId = req.user._id;
+    const requesterRole = req.user.role;
 
-    if (!['user', 'premium', 'admin'].includes(role)) {
-      return res.status(400).json({ success: false, message: 'Vai trò không hợp lệ.' });
+    // 1. Kiểm tra tính hợp lệ của role mới
+    const validRoles = ['user', 'premium', 'admin', 'super_admin'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Vai trò không hợp lệ.'
+      });
     }
 
+    // 2. Tìm user mục tiêu
     const user = await User.findById(id);
 
+    // PB19: "Nếu tài khoản không tồn tại, báo: Không thể thực hiện thao tác, vui lòng thử lại sau."
     if (!user) {
-      return res.status(404).json({ success: false, message: 'Không tìm thấy người dùng.' });
+      return res.status(404).json({
+        success: false,
+        message: 'Không thể thực hiện thao tác, vui lòng thử lại sau.'
+      });
     }
 
-    if (user.role === 'admin') {
-      return res.status(403).json({ success: false, message: 'Không thể thay đổi quyền của Quản trị viên khác.' });
+    // 3. PB19: Phân quyền logic (Authorization Guards)
+
+    // Rule Mới: Tuyệt đối không cho phép nâng cấp bất kỳ ai lên super_admin qua API
+    if (role === 'super_admin') {
+      await AdminLog.logAction(req.user, 'Cập nhật vai trò', 'Thất bại', `Cố gắng nâng cấp user (ID: ${user._id}) lên Super Admin bị chặn bởi hệ thống.`, req);
+      return res.status(403).json({
+        success: false,
+        message: 'Từ chối truy cập: Hệ thống không cho phép thăng cấp lên Super Admin qua giao diện quản trị.'
+      });
     }
 
+    // Nếu requester là ADMIN
+    if (requesterRole === 'admin') {
+      // Rule 3.1: Tuyệt đối không được thao tác trên ADMIN/SUPER_ADMIN khác
+      if (user.role === 'admin' || user.role === 'super_admin') {
+        await AdminLog.logAction(req.user, 'Cập nhật vai trò', 'Thất bại', `Admin cố gắng đổi quyền của Admin/SuperAdmin khác (ID: ${user._id})`, req);
+        return res.status(403).json({
+          success: false,
+          message: 'Từ chối truy cập: Bạn không có quyền thực hiện hành động này trên tài khoản mục tiêu.'
+        });
+      }
+
+      // Rule 3.2: Chỉ được phép đổi role giữa USER và PREMIUM
+      // Chặn nếu đích đến là admin
+      if (role === 'admin') {
+        await AdminLog.logAction(req.user, 'Cập nhật vai trò', 'Thất bại', `Admin cố gắng nâng cấp user (ID: ${user._id}) lên Admin bị chặn.`, req);
+        return res.status(403).json({
+          success: false,
+          message: 'Từ chối truy cập: Bạn không có quyền nâng cấp tài khoản lên cấp độ này.'
+        });
+      }
+    }
+
+    // Nếu requester là SUPER_ADMIN: Có toàn quyền (Trừ việc tạo thêm super_admin đã check ở trên)
+
+    // 4. Thực hiện cập nhật
     const oldRole = user.role;
     user.role = role;
     await user.save();
 
-    const descriptionStr = `Admin (ID: ${adminId}) đã đổi quyền User (ID: ${user._id}, Username: ${user.username}) từ ${oldRole} sang ${role}.`;
+    // 5. Ghi nhật ký hệ thống (Logging) - PB24
+    const descriptionStr = `${requesterRole.toUpperCase()} đã đổi quyền User (Username: ${user.username}) từ ${oldRole} sang ${role}.`;
 
-    await AdminLog.logAction(adminId, 'UPDATE_USER_ROLE', {
-      targetId: user._id,
-      description: descriptionStr,
-      deviceInfo: req.headers['user-agent'] || 'Unknown Device'
+    await AdminLog.logAction(req.user, 'Cập nhật vai trò', 'Thành công', descriptionStr, req, {
+      targetId: user._id
     });
 
+    // 6. Phản hồi thành công
     res.json({
       success: true,
-      message: 'Cập nhật vai trò thành công.',
+      message: 'Cập nhật vai trò tài khoản thành công.',
       data: {
         _id: user._id,
         role: user.role

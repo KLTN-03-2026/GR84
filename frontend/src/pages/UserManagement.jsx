@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { adminUserService } from '../services/api';
 import AdminLayout from '../components/AdminLayout';
 
@@ -65,13 +65,24 @@ export default function UserManagement() {
     const [limit] = useState(10);
     const [total, setTotal] = useState(0);
     const [totalPages, setTotalPages] = useState(1);
-    
-    const [search, setSearch] = useState('');
-    const [searchInput, setSearchInput] = useState('');
+
+    const [searchParams] = useSearchParams();
+    const initialSearch = searchParams.get('search') || '';
+
+    const [search, setSearch] = useState(initialSearch);
+    const [searchInput, setSearchInput] = useState(initialSearch);
     const [role, setRole] = useState('all');
     const [status, setStatus] = useState('all');
     const [gender, setGender] = useState('all');
     const [dateRange, setDateRange] = useState({ start: '', end: '' });
+
+    // Sync search states when URL search params change
+    useEffect(() => {
+        const querySearch = searchParams.get('search') || '';
+        setSearch(querySearch);
+        setSearchInput(querySearch);
+        setPage(1);
+    }, [searchParams]);
 
     const fetchUsers = async () => {
         try {
@@ -123,11 +134,9 @@ export default function UserManagement() {
         }
     };
 
-    const handleUpdateRole = async (id, currentRole) => {
-        const cycle = { 'user': 'premium', 'premium': 'admin', 'admin': 'user' };
-        const nextRole = cycle[currentRole?.toLowerCase()] || 'user';
+    const handleUpdateRole = async (id, newRole) => {
         try {
-            const res = await adminUserService.updateRole(id, nextRole);
+            const res = await adminUserService.updateRole(id, newRole);
             if (res.success) {
                 setUsers(prev => prev.map(u => u._id === id ? { ...u, role: res.data.role } : u));
                 alert(`Đã cấp quyền ${res.data.role.toUpperCase()} cho người dùng`);
@@ -167,96 +176,96 @@ export default function UserManagement() {
             <div className="flex-1 overflow-y-auto p-12 pr-16 space-y-10">
 
 
-                    {/* Search Bar & Role Dropdown */}
-                    <div className="flex gap-4 items-center">
-                        <div className="relative flex-1 max-w-[600px] flex items-center bg-white rounded-full shadow-sm p-1.5 pl-6">
-                            <Icons.Search className="text-gray-400 w-5 h-5 shrink-0" />
-                            <input 
-                                type="text" 
-                                placeholder="Tìm kiếm theo Email, Username, Họ tên..." 
-                                value={searchInput}
-                                onChange={(e) => setSearchInput(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && handleSearchClick()}
-                                className="flex-1 bg-transparent border-none focus:outline-none focus:ring-0 px-4 text-[15px] text-gray-700 placeholder-gray-400"
-                            />
-                            <button onClick={handleSearchClick} className="bg-[#E53258] text-white px-8 py-3 rounded-full font-bold text-sm hover:bg-rose-600 transition-colors shrink-0 shadow-md shadow-rose-200">
-                                Tìm kiếm
-                            </button>
-                        </div>
+                {/* Search Bar & Role Dropdown */}
+                <div className="flex gap-4 items-center">
+                    <div className="relative flex-1 max-w-[600px] flex items-center bg-white rounded-full shadow-sm p-1.5 pl-6">
+                        <Icons.Search className="text-gray-400 w-5 h-5 shrink-0" />
+                        <input
+                            type="text"
+                            placeholder="Tìm kiếm theo Email, Username, Họ tên..."
+                            value={searchInput}
+                            onChange={(e) => setSearchInput(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleSearchClick()}
+                            className="flex-1 bg-transparent border-none focus:outline-none focus:ring-0 px-4 text-[15px] text-gray-700 placeholder-gray-400"
+                        />
+                        <button onClick={handleSearchClick} className="bg-[#E53258] text-white px-8 py-3 rounded-full font-bold text-sm hover:bg-rose-600 transition-colors shrink-0 shadow-md shadow-rose-200">
+                            Tìm kiếm
+                        </button>
+                    </div>
 
-                        <div className="relative flex items-center bg-white rounded-full shadow-sm px-6 py-[18px] cursor-pointer gap-16 border border-transparent hover:border-gray-100 transition-colors">
-                            <select 
-                                value={role} 
-                                onChange={(e) => { setRole(e.target.value); setPage(1); }}
-                                className="appearance-none bg-transparent border-none focus:outline-none focus:ring-0 text-[15px] text-gray-800 font-medium z-10 w-full"
-                            >
-                                <option value="all">Tất cả vai trò</option>
-                                <option value="user">User</option>
-                                <option value="premium">Premium</option>
-                                <option value="admin">Admin</option>
-                            </select>
-                            <Icons.ChevronDown className="w-4 h-4 text-gray-400 absolute right-6 pointer-events-none" />
+                    <div className="relative flex items-center bg-white rounded-full shadow-sm px-6 py-[18px] cursor-pointer gap-16 border border-transparent hover:border-gray-100 transition-colors">
+                        <select
+                            value={role}
+                            onChange={(e) => { setRole(e.target.value); setPage(1); }}
+                            className="appearance-none bg-transparent border-none focus:outline-none focus:ring-0 text-[15px] text-gray-800 font-medium z-10 w-full"
+                        >
+                            <option value="all">Tất cả vai trò</option>
+                            <option value="user">User</option>
+                            <option value="premium">Premium</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                        <Icons.ChevronDown className="w-4 h-4 text-gray-400 absolute right-6 pointer-events-none" />
+                    </div>
+                </div>
+
+                {/* Filters Row */}
+                <div className="flex gap-6 items-center flex-wrap">
+                    {/* Status */}
+                    <div className="bg-[#FFF0F3] rounded-3xl p-1.5 px-2 pb-2 relative pt-6">
+                        <div className="absolute top-2 left-6 text-[9px] font-black text-[#D3A9B2] uppercase tracking-[0.1em]">Trạng thái</div>
+                        <div className="flex gap-1 items-center">
+                            <button onClick={() => { setStatus('all'); setPage(1); }} className={`px-6 py-2 rounded-2xl text-[13px] font-bold transition-colors ${status === 'all' ? 'bg-white text-gray-900 shadow-sm' : 'text-[#988C91] hover:text-gray-900'}`}>Tất cả</button>
+                            <button onClick={() => { setStatus('active'); setPage(1); }} className={`px-5 py-2 rounded-2xl text-[13px] font-bold transition-colors ${status === 'active' ? 'bg-white text-gray-900 shadow-sm' : 'text-[#988C91] hover:text-gray-900'}`}>Hoạt động</button>
+                            <button onClick={() => { setStatus('banned'); setPage(1); }} className={`px-5 py-2 rounded-2xl text-[13px] font-bold transition-colors ${status === 'banned' ? 'bg-white text-gray-900 shadow-sm' : 'text-[#988C91] hover:text-gray-900'}`}>Bị khóa</button>
                         </div>
                     </div>
 
-                    {/* Filters Row */}
-                    <div className="flex gap-6 items-center flex-wrap">
-                        {/* Status */}
-                        <div className="bg-[#FFF0F3] rounded-3xl p-1.5 px-2 pb-2 relative pt-6">
-                            <div className="absolute top-2 left-6 text-[9px] font-black text-[#D3A9B2] uppercase tracking-[0.1em]">Trạng thái</div>
-                            <div className="flex gap-1 items-center">
-                                <button onClick={() => { setStatus('all'); setPage(1); }} className={`px-6 py-2 rounded-2xl text-[13px] font-bold transition-colors ${status === 'all' ? 'bg-white text-gray-900 shadow-sm' : 'text-[#988C91] hover:text-gray-900'}`}>Tất cả</button>
-                                <button onClick={() => { setStatus('active'); setPage(1); }} className={`px-5 py-2 rounded-2xl text-[13px] font-bold transition-colors ${status === 'active' ? 'bg-white text-gray-900 shadow-sm' : 'text-[#988C91] hover:text-gray-900'}`}>Hoạt động</button>
-                                <button onClick={() => { setStatus('banned'); setPage(1); }} className={`px-5 py-2 rounded-2xl text-[13px] font-bold transition-colors ${status === 'banned' ? 'bg-white text-gray-900 shadow-sm' : 'text-[#988C91] hover:text-gray-900'}`}>Bị khóa</button>
-                            </div>
-                        </div>
-
-                        {/* Gender */}
-                        <div className="bg-[#FFF0F3] rounded-3xl p-1.5 px-2 pb-2 relative pt-6">
-                            <div className="absolute top-2 left-6 text-[9px] font-black text-[#D3A9B2] uppercase tracking-[0.1em]">Giới tính</div>
-                            <div className="flex gap-1 items-center">
-                                <button onClick={() => { setGender('all'); setPage(1); }} className={`px-5 py-2 rounded-2xl text-[13px] font-bold transition-colors ${gender === 'all' ? 'bg-white text-gray-900 shadow-sm' : 'text-[#988C91] hover:text-gray-900'}`}>Tất cả</button>
-                                <button onClick={() => { setGender('male'); setPage(1); }} className={`px-5 py-2 rounded-2xl text-[13px] font-bold transition-colors ${gender === 'male' ? 'bg-white text-gray-900 shadow-sm' : 'text-[#988C91] hover:text-gray-900'}`}>Nam</button>
-                                <button onClick={() => { setGender('female'); setPage(1); }} className={`px-5 py-2 rounded-2xl text-[13px] font-bold transition-colors ${gender === 'female' ? 'bg-white text-gray-900 shadow-sm' : 'text-[#988C91] hover:text-gray-900'}`}>Nữ</button>
-                            </div>
-                        </div>
-
-                        {/* Join Date */}
-                        <div className="bg-[#FFF0F3] rounded-3xl p-1.5 px-2 pb-2 relative pt-6 flex-1 max-w-[420px]">
-                            <div className="absolute top-2 left-6 text-[9px] font-black text-[#D3A9B2] uppercase tracking-[0.1em]">Khoảng thời gian tham gia</div>
-                            <div className="flex items-center gap-3">
-                                <div className="flex-1 flex items-center bg-white rounded-2xl px-3 py-2 gap-2 justify-between">
-                                    <input type="date" className="w-full text-gray-600 text-[13px] font-medium outline-none border-none bg-transparent" value={dateRange.start} onChange={e => setDateRange({...dateRange, start: e.target.value})} />
-                                </div>
-                                <span className="text-[#988C91] text-[13px] font-bold">đến</span>
-                                <div className="flex-1 flex items-center bg-white rounded-2xl px-3 py-2 gap-2 justify-between">
-                                    <input type="date" className="w-full text-gray-600 text-[13px] font-medium outline-none border-none bg-transparent" value={dateRange.end} onChange={e => setDateRange({...dateRange, end: e.target.value})} />
-                                </div>
-                            </div>
+                    {/* Gender */}
+                    <div className="bg-[#FFF0F3] rounded-3xl p-1.5 px-2 pb-2 relative pt-6">
+                        <div className="absolute top-2 left-6 text-[9px] font-black text-[#D3A9B2] uppercase tracking-[0.1em]">Giới tính</div>
+                        <div className="flex gap-1 items-center">
+                            <button onClick={() => { setGender('all'); setPage(1); }} className={`px-5 py-2 rounded-2xl text-[13px] font-bold transition-colors ${gender === 'all' ? 'bg-white text-gray-900 shadow-sm' : 'text-[#988C91] hover:text-gray-900'}`}>Tất cả</button>
+                            <button onClick={() => { setGender('male'); setPage(1); }} className={`px-5 py-2 rounded-2xl text-[13px] font-bold transition-colors ${gender === 'male' ? 'bg-white text-gray-900 shadow-sm' : 'text-[#988C91] hover:text-gray-900'}`}>Nam</button>
+                            <button onClick={() => { setGender('female'); setPage(1); }} className={`px-5 py-2 rounded-2xl text-[13px] font-bold transition-colors ${gender === 'female' ? 'bg-white text-gray-900 shadow-sm' : 'text-[#988C91] hover:text-gray-900'}`}>Nữ</button>
                         </div>
                     </div>
 
-                    {/* Data Table */}
-                    <div className="bg-white rounded-t-[32px] rounded-b-[24px] shadow-[0_8px_30px_rgb(0,0,0,0.02)] flex-1 flex flex-col pt-8 pb-4 relative z-10 border border-gray-50/50">
-                        <table className="w-full text-left border-collapse table-fixed">
-                            <thead>
-                                <tr>
-                                    <th className="pb-6 text-[11px] font-black tracking-widest text-[#A19D9F] uppercase w-[25%] pl-8">Tên người dùng</th>
-                                    <th className="pb-6 text-[11px] font-black tracking-widest text-[#A19D9F] uppercase w-[22%]">Liên hệ</th>
-                                    <th className="pb-6 text-[11px] font-black tracking-widest text-[#A19D9F] uppercase w-[13%]">Vai trò</th>
-                                    <th className="pb-6 text-[11px] font-black tracking-widest text-[#A19D9F] uppercase w-[15%]">Ngày tham gia</th>
-                                    <th className="pb-6 text-[11px] font-black tracking-widest text-[#A19D9F] uppercase w-[10%] text-center">Trạng thái</th>
-                                    <th className="pb-6 text-[11px] font-black tracking-widest text-[#A19D9F] uppercase w-[15%] text-right pr-12">Thao tác</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50/80">
-                                {loading ? (
-                                    <tr><td colSpan="6" className="py-12 text-center text-gray-500">Đang tải dữ liệu...</td></tr>
-                                ) : (!users || users.length === 0) ? (
-                                    <tr><td colSpan="6" className="py-12 text-center text-gray-500">Không tìm thấy người dùng nào.</td></tr>
-                                ) : users.map((user, idx) => {
-                                    const isBanned = user.isLocked || user.status === 'banned';
-                                    return (
+                    {/* Join Date */}
+                    <div className="bg-[#FFF0F3] rounded-3xl p-1.5 px-2 pb-2 relative pt-6 flex-1 max-w-[420px]">
+                        <div className="absolute top-2 left-6 text-[9px] font-black text-[#D3A9B2] uppercase tracking-[0.1em]">Khoảng thời gian tham gia</div>
+                        <div className="flex items-center gap-3">
+                            <div className="flex-1 flex items-center bg-white rounded-2xl px-3 py-2 gap-2 justify-between">
+                                <input type="date" className="w-full text-gray-600 text-[13px] font-medium outline-none border-none bg-transparent" value={dateRange.start} onChange={e => setDateRange({ ...dateRange, start: e.target.value })} />
+                            </div>
+                            <span className="text-[#988C91] text-[13px] font-bold">đến</span>
+                            <div className="flex-1 flex items-center bg-white rounded-2xl px-3 py-2 gap-2 justify-between">
+                                <input type="date" className="w-full text-gray-600 text-[13px] font-medium outline-none border-none bg-transparent" value={dateRange.end} onChange={e => setDateRange({ ...dateRange, end: e.target.value })} />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Data Table */}
+                <div className="bg-white rounded-t-[32px] rounded-b-[24px] shadow-[0_8px_30px_rgb(0,0,0,0.02)] flex-1 flex flex-col pt-8 pb-4 relative z-10 border border-gray-50/50">
+                    <table className="w-full text-left border-collapse table-fixed">
+                        <thead>
+                            <tr>
+                                <th className="pb-6 text-[11px] font-black tracking-widest text-[#A19D9F] uppercase w-[25%] pl-8">Tên người dùng</th>
+                                <th className="pb-6 text-[11px] font-black tracking-widest text-[#A19D9F] uppercase w-[22%]">Liên hệ</th>
+                                <th className="pb-6 text-[11px] font-black tracking-widest text-[#A19D9F] uppercase w-[13%]">Vai trò</th>
+                                <th className="pb-6 text-[11px] font-black tracking-widest text-[#A19D9F] uppercase w-[15%]">Ngày tham gia</th>
+                                <th className="pb-6 text-[11px] font-black tracking-widest text-[#A19D9F] uppercase w-[10%] text-center">Trạng thái</th>
+                                <th className="pb-6 text-[11px] font-black tracking-widest text-[#A19D9F] uppercase w-[15%] text-right pr-12">Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50/80">
+                            {loading ? (
+                                <tr><td colSpan="6" className="py-12 text-center text-gray-500">Đang tải dữ liệu...</td></tr>
+                            ) : (!users || users.length === 0) ? (
+                                <tr><td colSpan="6" className="py-12 text-center text-gray-500">Không tìm thấy người dùng nào.</td></tr>
+                            ) : users.map((user, idx) => {
+                                const isBanned = user.isLocked || user.status === 'banned';
+                                return (
                                     <tr key={user._id} className={`hover:bg-[#FCFAFA] transition-colors group ${isBanned ? 'opacity-60 bg-gray-50/50' : ''}`}>
                                         <td className="py-5 pl-8">
                                             <div className="flex items-center gap-4">
@@ -295,81 +304,72 @@ export default function UserManagement() {
                                         </td>
                                         <td className="py-5 text-right pr-12">
                                             <div className="flex items-center justify-end gap-5">
-                                                <button onClick={() => handleUpdateRole(user._id, user.role)} className="text-gray-400 hover:text-gray-700 transition-colors" title="Thay đổi quyền">
-                                                    <Icons.ArrowLeftRight className="w-[18px] h-[18px]"/>
-                                                </button>
+                                                <select
+                                                    value={user.role?.toLowerCase() || 'user'}
+                                                    onChange={(e) => handleUpdateRole(user._id, e.target.value)}
+                                                    className="bg-gray-50 border border-gray-200 rounded-lg text-[12px] font-bold text-gray-600 focus:outline-none focus:ring-1 focus:ring-rose-300 focus:border-rose-300 cursor-pointer py-1.5 px-2 hover:bg-white transition-colors uppercase tracking-wider"
+                                                    title="Thay đổi quyền"
+                                                >
+                                                    <option value="user">USER</option>
+                                                    <option value="premium">PREMIUM</option>
+                                                    <option value="admin">ADMIN</option>
+                                                </select>
                                                 {user.isLocked || user.status === 'banned' ? (
                                                     <button onClick={() => handleToggleStatus(user._id)} className="w-9 h-9 flex items-center justify-center rounded-full bg-[#FFF0F3] text-[#E53258] hover:bg-rose-100 transition-colors" title="Mở khóa">
-                                                        <Icons.Lock className="w-[18px] h-[18px] text-[#E53258]"/>
+                                                        <Icons.Lock className="w-[18px] h-[18px] text-[#E53258]" />
                                                     </button>
                                                 ) : (
                                                     <button onClick={() => handleToggleStatus(user._id)} className="text-gray-500 hover:text-gray-800 transition-colors" title="Khóa">
-                                                        <Icons.Lock className="w-[18px] h-[18px]"/>
+                                                        <Icons.Lock className="w-[18px] h-[18px]" />
                                                     </button>
                                                 )}
                                             </div>
                                         </td>
                                     </tr>
-                                )})}
-                            </tbody>
-                        </table>
+                                )
+                            })}
+                        </tbody>
+                    </table>
 
-                        {/* Table Footer / Pagination */}
-                        <div className="flex justify-between items-center mt-6 pt-6 border-t border-gray-50 px-8">
-                            <span className="text-[13px] text-gray-400 font-medium tracking-wide">
-                                Hiển thị <span className="font-extrabold text-gray-800">{(users && users.length > 0) ? (page - 1) * limit + 1 : 0} - {Math.min(page * limit, total)}</span> trong tổng số <span className="font-extrabold text-[#E53258]">{total}</span> người dùng
-                            </span>
-                            
-                            <div className="flex items-center gap-8">
-                                <span className="text-[13px] text-gray-500 font-medium">Trang {page} của {totalPages}</span>
-                                <div className="flex items-center gap-2">
-                                    <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="w-[34px] h-[34px] rounded-full bg-gray-100/80 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors disabled:opacity-50">
-                                        <Icons.ChevronDown className="w-4 h-4 rotate-90" />
-                                    </button>
-                                    {Array.from({ length: Math.min(3, totalPages) }, (_, i) => {
-                                        let p = page;
-                                        if (page === 1) p = i + 1;
-                                        else if (page === totalPages && totalPages > 2) p = totalPages - 2 + i;
-                                        else p = page - 1 + i;
-                                        if (p > totalPages) return null;
-                                        
-                                        return (
-                                            <button 
-                                                key={p} 
-                                                onClick={() => setPage(p)}
-                                                className={`w-[34px] h-[34px] rounded-full flex items-center justify-center font-bold transition-colors ${page === p ? 'bg-[#B21C3A] text-white shadow-md shadow-rose-200/50 outline outline-[3px] outline-[#FFF0F3]' : 'text-gray-600 hover:bg-gray-50'}`}
-                                            >
-                                                {p}
-                                            </button>
-                                        )
-                                    })}
-                                    <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages || totalPages === 0} className="w-[34px] h-[34px] rounded-full bg-gray-100/80 flex items-center justify-center text-gray-500 hover:text-gray-800 hover:bg-gray-200 transition-colors disabled:opacity-50">
-                                        <Icons.ChevronDown className="w-4 h-4 -rotate-90" />
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
+                    {/* Table Footer / Pagination */}
+                    <div className="flex justify-between items-center mt-6 pt-6 border-t border-gray-50 px-8">
+                        <span className="text-[13px] text-gray-400 font-medium tracking-wide">
+                            Hiển thị <span className="font-extrabold text-gray-800">{(users && users.length > 0) ? (page - 1) * limit + 1 : 0} - {Math.min(page * limit, total)}</span> trong tổng số <span className="font-extrabold text-[#E53258]">{total}</span> người dùng
+                        </span>
 
-                        {/* Floating AI Insights Card */}
-                        <div className="absolute right-[-24px] bottom-16 w-[340px] bg-[#1E1C22] text-white rounded-[24px] p-6 shadow-2xl z-20">
-                            <div className="flex items-start gap-4 mb-3">
-                                <div className="w-11 h-11 bg-[#E53258] rounded-full flex items-center justify-center shrink-0 shadow-[0_4px_16px_rgba(229,50,88,0.4)]">
-                                    <Icons.Activity className="w-[22px] h-[22px] text-white" />
-                                </div>
-                                <div className="pt-0.5">
-                                    <div className="font-extrabold text-[15px] mb-0.5">AI Insights</div>
-                                    <div className="text-[11px] text-gray-400 font-medium tracking-wide">Phân tích hành vi 24h qua</div>
-                                </div>
+                        <div className="flex items-center gap-8">
+                            <span className="text-[13px] text-gray-500 font-medium">Trang {page} của {totalPages}</span>
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="w-[34px] h-[34px] rounded-full bg-gray-100/80 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-colors disabled:opacity-50">
+                                    <Icons.ChevronDown className="w-4 h-4 rotate-90" />
+                                </button>
+                                {Array.from({ length: Math.min(3, totalPages) }, (_, i) => {
+                                    let p = page;
+                                    if (page === 1) p = i + 1;
+                                    else if (page === totalPages && totalPages > 2) p = totalPages - 2 + i;
+                                    else p = page - 1 + i;
+                                    if (p > totalPages) return null;
+
+                                    return (
+                                        <button
+                                            key={p}
+                                            onClick={() => setPage(p)}
+                                            className={`w-[34px] h-[34px] rounded-full flex items-center justify-center font-bold transition-colors ${page === p ? 'bg-[#B21C3A] text-white shadow-md shadow-rose-200/50 outline outline-[3px] outline-[#FFF0F3]' : 'text-gray-600 hover:bg-gray-50'}`}
+                                        >
+                                            {p}
+                                        </button>
+                                    )
+                                })}
+                                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages || totalPages === 0} className="w-[34px] h-[34px] rounded-full bg-gray-100/80 flex items-center justify-center text-gray-500 hover:text-gray-800 hover:bg-gray-200 transition-colors disabled:opacity-50">
+                                    <Icons.ChevronDown className="w-4 h-4 -rotate-90" />
+                                </button>
                             </div>
-                            <p className="text-[13px] text-gray-300 leading-relaxed mb-6 font-medium px-1">
-                                Phát hiện <span className="text-[#E53258] font-bold">12 tài khoản</span> có dấu hiệu spam tin nhắn tự động. Hệ thống đề xuất xem xét khóa tạm thời.
-                            </p>
-                            <button className="w-full py-3 bg-[#2D2A32] hover:bg-[#38353E] border border-gray-700/60 rounded-[14px] text-[13px] text-gray-200 font-bold transition-colors shadow-sm">
-                                Xem danh sách đề xuất
-                            </button>
                         </div>
                     </div>
+
+
                 </div>
+            </div>
         </AdminLayout>
     );
 }

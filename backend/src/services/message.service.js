@@ -26,7 +26,7 @@ export const getMessages = async (matchId, userId, { page = 1, limit = 50 } = {}
 
   const [messages, total] = await Promise.all([
     Message.find(query)
-      .populate('senderId', 'username avatar')  // Only populate senderId
+      .populate('senderId', 'username fullName avatar')  // Only populate senderId
       .sort({ createdAt: 1 }) // ASC = chronological order (oldest first)
       .skip(skip)
       .limit(limit)
@@ -87,7 +87,7 @@ export const sendMessage = async (matchId, userId, { content, image, mediaUrl, m
   const message = await Message.create(messageData);
 
   // Populate senderId and rename to sender
-  await message.populate('senderId', 'username avatar');
+  await message.populate('senderId', 'username fullName avatar');
   const populatedMessage = message.toObject();
 
   // For frontend compatibility: replace senderId with sender object
@@ -101,7 +101,14 @@ export const sendMessage = async (matchId, userId, { content, image, mediaUrl, m
 };
 
 export const getConversations = async (userId) => {
-  const matches = await Match.findUserMatches(userId);
+  // 4. Ensure users are populated
+  const matches = await Match.find({
+    $or: [
+      { user1Id: userId },
+      { user2Id: userId }
+    ],
+    isActive: true
+  }).populate('users', 'username avatar _id');
 
   if (matches.length === 0) return { conversations: [] };
 
@@ -146,13 +153,20 @@ export const getConversations = async (userId) => {
   )];
 
   const senders = await User.find({ _id: { $in: senderIds } })
-    .select('username avatar')
+    .select('username fullName avatar')
     .lean();
 
   const senderMap = new Map(senders.map(s => [s._id.toString(), s]));
 
   const conversations = matches.map(match => {
-    const otherUserId = match.getOtherUser(userId);
+    // 3. Fix logic to correctly determine the "other user" in a match
+    const otherUser = match.users.find(
+      u => u._id.toString() !== userId.toString()
+    );
+
+    // 6. Add safety: If otherUser is missing -> skip this conversation
+    if (!otherUser) return null;
+
     const lastMessage = lastMessageMap.get(match._id.toString());
 
     if (lastMessage) {
@@ -162,22 +176,24 @@ export const getConversations = async (userId) => {
       }
     }
 
+    // 5. Fix response structure
     return {
       matchId: match._id,
-      userId: otherUserId,
+      userId: otherUser._id,
+      user: otherUser,
       lastMessage: lastMessage || null,
       unreadCount: unreadCountMap.get(match._id.toString()) || 0,
-      lastActivity: match.lastActivity,
-      matchedAt: match.matchedAt || match.createdAt
+      updatedAt: match.updatedAt
     };
   });
 
   const populatedConversations = await Match.populate(conversations, {
     path: 'userId',
-    select: 'username avatar isOnline lastSeen -password -passwordHash'
+    model: 'User',
+    select: 'username fullName avatar isOnline lastSeen'
   });
 
-  return { conversations: populatedConversations };
+  return { conversations };
 };
 
 export const markMessagesAsRead = async (matchId, userId) => {

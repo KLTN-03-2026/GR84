@@ -1,66 +1,80 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import { useAuthStore } from '../store/authStore';
 
 const SocketContext = createContext(null);
 
+// Get socket URL from environment - uses VITE_SOCKET_URL for both local and production
 const getSocketUrl = () => {
-  const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-  const host = window.location.host;
-  
-  // Production: use external backend URL from env or current origin
+  // Production: MUST use VITE_SOCKET_URL from env
   if (import.meta.env.PROD) {
-    return import.meta.env.VITE_API_URL || `${protocol}//${host}`;
+    return import.meta.env.VITE_SOCKET_URL;
   }
-  
-  // Development: use local backend
-  return import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  // Development: use VITE_SOCKET_URL or fallback to localhost
+  return import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
 };
 
 export const SocketProvider = ({ children }) => {
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
-  const { token } = useAuthStore();
+  const { token, user } = useAuthStore();
+
+  const connectSocket = useCallback(() => {
+    if (!token || !user) return null;
+
+    const socketUrl = getSocketUrl();
+    console.log('[Socket] Connecting to:', socketUrl);
+
+    const newSocket = io(socketUrl, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      withCredentials: true, // Important for cross-origin cookies
+    });
+
+    newSocket.on('connect', () => {
+      console.log('[Socket] Connected:', newSocket.id);
+      setIsConnected(true);
+    });
+
+    newSocket.on('disconnect', (reason) => {
+      console.log('[Socket] Disconnected:', reason);
+      setIsConnected(false);
+    });
+
+    newSocket.on('connect_error', (error) => {
+      console.error('[Socket] Connection error:', error.message);
+      setIsConnected(false);
+    });
+
+    return newSocket;
+  }, [token, user]);
 
   useEffect(() => {
-    if (token) {
-      const socketUrl = getSocketUrl();
-      const newSocket = io(socketUrl, {
-        auth: { token },
-        transports: ['websocket', 'polling'],
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-      });
-
-      newSocket.on('connect', () => {
-        console.log('Socket connected');
-        setIsConnected(true);
-      });
-
-      newSocket.on('disconnect', () => {
-        console.log('Socket disconnected');
-        setIsConnected(false);
-      });
-
-      newSocket.on('connect_error', (error) => {
-        console.error('Socket connection error:', error);
-      });
-
-      setSocket(newSocket);
-
-      return () => {
-        newSocket.close();
-      };
-    } else {
+    if (!token || !user) {
       if (socket) {
+        console.log('[Socket] No auth, closing socket');
         socket.close();
         setSocket(null);
         setIsConnected(false);
       }
+      return;
     }
-  }, [token]);
+
+    const newSocket = connectSocket();
+    if (newSocket) {
+      setSocket(newSocket);
+    }
+
+    return () => {
+      if (newSocket) {
+        newSocket.close();
+      }
+    };
+  }, [token, user, connectSocket]);
 
   return (
     <SocketContext.Provider value={{ socket, isConnected }}>

@@ -31,7 +31,7 @@ const AuthCallback = () => {
         setUser(data.user);
 
         // Auto-detect admin
-        if (data.user.role === 'admin' || data.user.role === 'Admin') {
+        if (data.user.role === 'admin' || data.user.role === 'super_admin') {
            navigate('/admin/dashboard');
            return;
         }

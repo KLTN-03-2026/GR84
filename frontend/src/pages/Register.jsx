@@ -9,7 +9,7 @@ const Register = () => {
   const navigate = useNavigate();
   const { register, isLoading, error, clearError } = useAuthStore();
   const [formData, setFormData] = useState({ username: '', email: '', password: '', confirmPassword: '', agree: false });
-  const [validationError, setValidationError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({ username: '', email: '', password: '', confirmPassword: '', agree: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
@@ -20,22 +20,83 @@ const Register = () => {
     return import.meta.env.VITE_API_URL || 'http://localhost:5000';
   };
 
+  // Validation rules
+  const validateUsername = (value) => {
+    if (!value) return 'Tên người dùng là bắt buộc.';
+    if (!/^[a-zA-Z0-9_]+$/.test(value)) return 'Tên người dùng viết liền không dấu và không chứa khoảng trắng.';
+    if (value.length < 3) return 'Tên người dùng tối thiểu 3 ký tự.';
+    return '';
+  };
+
+  const validateEmail = (value) => {
+    if (!value) return 'Email là bắt buộc.';
+    if (!/\S+@\S+\.\S+/.test(value)) return 'Email không hợp lệ.';
+    return '';
+  };
+
+  const validatePassword = (value) => {
+    if (!value) return 'Mật khẩu là bắt buộc.';
+    if (value.length < 6) return 'Mật khẩu tối thiểu 6 ký tự.';
+    return '';
+  };
+
+  const validateConfirmPassword = (value, password) => {
+    if (!value) return 'Xác nhận mật khẩu là bắt buộc.';
+    if (value !== password) return 'Mật khẩu xác nhận không khớp.';
+    return '';
+  };
+
+  const validateAgree = (value) => {
+    if (!value) return 'Bạn cần đồng ý với Điều khoản dịch vụ.';
+    return '';
+  };
+
   const handleChange = e => {
     const { name, value, type, checked } = e.target;
-    setFormData({ ...formData, [name]: type === 'checkbox' ? checked : value });
+    const newValue = type === 'checkbox' ? checked : value;
+    setFormData({ ...formData, [name]: newValue });
+    
+    // Real-time validation - xóa lỗi khi người dùng bắt đầu gõ
+    let error = '';
+    if (name === 'username') error = validateUsername(newValue);
+    else if (name === 'email') error = validateEmail(newValue);
+    else if (name === 'password') error = validatePassword(newValue);
+    else if (name === 'confirmPassword') error = validateConfirmPassword(newValue, formData.password);
+    else if (name === 'agree') error = validateAgree(newValue);
+
+    setFieldErrors({ ...fieldErrors, [name]: error });
     if (error) clearError();
-    if (validationError) setValidationError('');
   };
 
   const handleSubmit = async e => {
     e.preventDefault();
-    setValidationError('');
-    if (!formData.username || !formData.email || !formData.password || !formData.confirmPassword)
-      return setValidationError('Vui lòng điền đầy đủ thông tin.');
-    if (formData.password !== formData.confirmPassword) return setValidationError('Mật khẩu không khớp.');
-    if (formData.password.length < 6) return setValidationError('Mật khẩu tối thiểu 6 ký tự.');
-    if (!formData.agree) return setValidationError('Bạn cần đồng ý với Điều khoản dịch vụ.');
-    try { const r = await register(formData); if (r) navigate('/onboarding'); } catch (_) { }
+    
+    // Validate all fields
+    const usernameErr = validateUsername(formData.username);
+    const emailErr = validateEmail(formData.email);
+    const passwordErr = validatePassword(formData.password);
+    const confirmErr = validateConfirmPassword(formData.confirmPassword, formData.password);
+    const agreeErr = validateAgree(formData.agree);
+
+    const newErrors = {
+      username: usernameErr,
+      email: emailErr,
+      password: passwordErr,
+      confirmPassword: confirmErr,
+      agree: agreeErr
+    };
+
+    setFieldErrors(newErrors);
+
+    // If any error, stop submission
+    if (usernameErr || emailErr || passwordErr || confirmErr || agreeErr) {
+      return;
+    }
+
+    try {
+      const r = await register(formData);
+      if (r) navigate('/onboarding');
+    } catch (_) { }
   };
 
   /* ── Shared field styles ── */
@@ -75,7 +136,7 @@ const Register = () => {
         <div className="w-full max-w-[960px] m-auto bg-white rounded-[2rem] shadow-2xl border border-gray-200 overflow-hidden flex flex-col lg:flex-row items-stretch" data-aos="fade-up" data-aos-duration="1000">
 
           {/* ═══ LEFT ═══ */}
-          <div className="lg:w-[45%] p-6 lg:p-8 bg-gradient-to-b from-primary-50/50 to-white flex flex-col relative z-10 border-b lg:border-b-0 lg:border-r border-gray-100">
+          <div className="hidden lg:flex lg:w-[45%] p-6 lg:p-8 bg-gradient-to-b from-primary-50/50 to-white flex flex-col relative z-10 border-b lg:border-b-0 lg:border-r border-gray-100">
             
             {/* Back - Trượt ngang */}
             <Link to="/" className="inline-flex items-center gap-1.5 text-xs text-primary-700 font-bold border border-primary-200 bg-white rounded-full px-3.5 py-1.5 w-fit mb-6 hover:bg-primary-50 transition-all shadow-sm" data-aos="fade-right" data-aos-delay="100">
@@ -124,22 +185,28 @@ const Register = () => {
           </div>
 
           {/* ═══ RIGHT — Form ═══ */}
-          <div className="lg:w-[55%] flex flex-col bg-white">
+          <div className="w-full lg:w-[55%] flex flex-col bg-white">
             <div className="px-6 lg:px-10 py-8 lg:py-10 flex-1 flex flex-col">
               
+              {/* Back Button - Mobile only */}
+              <Link to="/" className="lg:hidden inline-flex items-center gap-1.5 text-xs text-primary-700 font-bold border border-primary-200 bg-white rounded-full px-3.5 py-1.5 w-fit mb-4 hover:bg-primary-50 transition-all shadow-sm">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>
+                Trang chủ
+              </Link>
+
               {/* Tiêu đề form - Trượt từ phải sang */}
               <div className="mb-6 text-center" data-aos="fade-left" data-aos-delay="300">
                 <h2 className="text-xl font-black text-pink-600">Tạo tài khoản mới</h2>
                 <p className="text-black-100 font-medium text-xs mt-1 italic">Bắt đầu câu chuyện tình yêu ngay hôm nay 💕</p>
               </div>
 
-              {/* Error */}
-              {(error || validationError) && (
+              {/* Error - Chỉ hiển thị lỗi từ backend */}
+              {error && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2">
                   <svg className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01M12 3a9 9 0 100 18A9 9 0 0012 3z" />
                   </svg>
-                  <p className="text-red-700 font-medium text-[12px]">{error || validationError}</p>
+                  <p className="text-red-700 font-medium text-[12px]">{error}</p>
                 </div>
               )}
 
@@ -151,9 +218,20 @@ const Register = () => {
                     <label htmlFor="username" className={labelCls}>Tên người dùng</label>
                     <div className="relative">
                       <span className={iconWrap}><UserIcon /></span>
-                      <input id="username" name="username" type="text" value={formData.username} onChange={handleChange}
-                        placeholder="name123" className={inputCls} required minLength={3} maxLength={30} />
+                      <input 
+                        id="username" 
+                        name="username" 
+                        type="text" 
+                        value={formData.username} 
+                        onChange={handleChange}
+                        placeholder="name123" 
+                        className={`${inputCls} ${fieldErrors.username ? 'border-rose-500 focus:ring-rose-300' : ''}`}
+                        required 
+                        minLength={3} 
+                        maxLength={30} 
+                      />
                     </div>
+                    {fieldErrors.username && <p className="text-rose-500 text-xs mt-1.5 ml-1 font-medium">{fieldErrors.username}</p>}
                   </div>
 
                   {/* Email */}
@@ -161,9 +239,18 @@ const Register = () => {
                     <label htmlFor="email" className={labelCls}>Email</label>
                     <div className="relative">
                       <span className={iconWrap}><MailIcon /></span>
-                      <input id="email" name="email" type="email" value={formData.email} onChange={handleChange}
-                        placeholder="user_name@gmail.com" className={inputCls} required />
+                      <input 
+                        id="email" 
+                        name="email" 
+                        type="email" 
+                        value={formData.email} 
+                        onChange={handleChange}
+                        placeholder="user_name@gmail.com" 
+                        className={`${inputCls} ${fieldErrors.email ? 'border-rose-500 focus:ring-rose-300' : ''}`}
+                        required 
+                      />
                     </div>
+                    {fieldErrors.email && <p className="text-rose-500 text-xs mt-1.5 ml-1 font-medium">{fieldErrors.email}</p>}
                   </div>
 
                   {/* Password */}
@@ -171,14 +258,26 @@ const Register = () => {
                     <label htmlFor="password" className={labelCls}>Mật khẩu</label>
                     <div className="relative">
                       <span className={iconWrap}><LockIcon /></span>
-                      <input id="password" name="password" type={showPassword ? 'text' : 'password'}
-                        value={formData.password} onChange={handleChange} placeholder="••••••••"
-                        className={`${inputCls} pr-10`} required minLength={6} />
-                      <button type="button" onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-primary-600 transition-colors">
+                      <input 
+                        id="password" 
+                        name="password" 
+                        type={showPassword ? 'text' : 'password'}
+                        value={formData.password} 
+                        onChange={handleChange} 
+                        placeholder="••••••••"
+                        className={`${inputCls} pr-10 ${fieldErrors.password ? 'border-rose-500 focus:ring-rose-300' : ''}`}
+                        required 
+                        minLength={6} 
+                      />
+                      <button 
+                        type="button" 
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-primary-600 transition-colors"
+                      >
                         {showPassword ? <EyeOff /> : <EyeOpen />}
                       </button>
                     </div>
+                    {fieldErrors.password && <p className="text-rose-500 text-xs mt-1.5 ml-1 font-medium">{fieldErrors.password}</p>}
                   </div>
 
                   {/* Confirm */}
@@ -186,26 +285,48 @@ const Register = () => {
                     <label htmlFor="confirmPassword" className={labelCls}>Xác nhận</label>
                     <div className="relative">
                       <span className={iconWrap}><ShieldIcon /></span>
-                      <input id="confirmPassword" name="confirmPassword" type={showConfirm ? 'text' : 'password'}
-                        value={formData.confirmPassword} onChange={handleChange} placeholder="••••••••"
-                        className={`${inputCls} pr-10`} required minLength={6} />
-                      <button type="button" onClick={() => setShowConfirm(!showConfirm)}
-                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-primary-600 transition-colors">
+                      <input 
+                        id="confirmPassword" 
+                        name="confirmPassword" 
+                        type={showConfirm ? 'text' : 'password'}
+                        value={formData.confirmPassword} 
+                        onChange={handleChange} 
+                        placeholder="••••••••"
+                        className={`${inputCls} pr-10 ${fieldErrors.confirmPassword ? 'border-rose-500 focus:ring-rose-300' : ''}`}
+                        required 
+                        minLength={6} 
+                      />
+                      <button 
+                        type="button" 
+                        onClick={() => setShowConfirm(!showConfirm)}
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-primary-600 transition-colors"
+                      >
                         {showConfirm ? <EyeOff /> : <EyeOpen />}
                       </button>
                     </div>
+                    {fieldErrors.confirmPassword && <p className="text-rose-500 text-xs mt-1.5 ml-1 font-medium">{fieldErrors.confirmPassword}</p>}
                   </div>
                 </div>
 
                 {/* Agree */}
                 <div className="flex items-start gap-2 pt-1">
-                  <input type="checkbox" id="agree" name="agree" checked={formData.agree} onChange={handleChange}
-                    className="mt-0.5 w-4 h-4 rounded border-gray-300 accent-primary-600 cursor-pointer flex-shrink-0" required />
-                  <label htmlFor="agree" className="text-[12px] text-gray-600 font-medium select-none leading-relaxed">
-                    Tôi đồng ý với{' '}
-                    <Link to="#" className="text-primary-600 font-bold hover:underline">Điều khoản</Link>{' '}và{' '}
-                    <Link to="#" className="text-primary-600 font-bold hover:underline">Chính sách bảo mật</Link>.
-                  </label>
+                  <input 
+                    type="checkbox" 
+                    id="agree" 
+                    name="agree" 
+                    checked={formData.agree} 
+                    onChange={handleChange}
+                    className={`mt-0.5 w-4 h-4 rounded border-gray-300 accent-primary-600 cursor-pointer flex-shrink-0 ${fieldErrors.agree ? 'border-rose-500' : ''}`}
+                    required 
+                  />
+                  <div className="flex-1">
+                    <label htmlFor="agree" className="text-[12px] text-gray-600 font-medium select-none leading-relaxed">
+                      Tôi đồng ý với{' '}
+                      <Link to="#" className="text-primary-600 font-bold hover:underline">Điều khoản</Link>{' '}và{' '}
+                      <Link to="#" className="text-primary-600 font-bold hover:underline">Chính sách bảo mật</Link>.
+                    </label>
+                    {fieldErrors.agree && <p className="text-rose-500 text-xs mt-1 font-medium">{fieldErrors.agree}</p>}
+                  </div>
                 </div>
 
                 <div className="mt-auto pt-4 space-y-3">

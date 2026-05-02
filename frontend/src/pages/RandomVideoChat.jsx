@@ -2,10 +2,11 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { useSocket } from '../context/SocketContext';
 import Navbar from '../components/Navbar';
+import SidebarMenu from '../components/SidebarMenu';
 
 const RandomVideoChat = () => {
   const { user } = useAuthStore();
-  const { socket, connect } = useSocket();
+  const { socket } = useSocket();
 
   const [status, setStatus] = useState('idle');
   const [partner, setPartner] = useState(null);
@@ -156,41 +157,65 @@ const RandomVideoChat = () => {
   };
 
   useEffect(() => {
-    if (!socket) {
-      connect();
-    }
-  }, [socket, connect]);
-
-  useEffect(() => {
     if (!socket) return;
 
+    console.log('[RandomVideoChat] Setting up socket listeners');
+
     socket.on('waiting_for_partner', () => {
+      console.log('[RandomVideoChat] Waiting for partner...');
       setStatus('searching');
     });
 
     socket.on('random_partner_found', async (data) => {
+      console.log('[RandomVideoChat] Partner found:', data);
       setSessionId(data.sessionId);
       setPartner(data.partner);
       setStatus('connected');
       setError(null);
       isInitiator.current = true;
 
+      // Small delay to ensure peer connection is ready
       setTimeout(() => {
         handleOffer(data.partner._id);
       }, 500);
     });
 
     socket.on('partner_left', () => {
+      console.log('[RandomVideoChat] Partner left');
       handleEndSession();
     });
 
+    socket.on('session_ended', () => {
+      console.log('[RandomVideoChat] Session ended by server');
+      handleEndSession();
+    });
+
+    socket.on('video_error', (data) => {
+      console.error('[RandomVideoChat] Video error:', data.message);
+      setError(data.message);
+    });
+
+    socket.on('search_cancelled', () => {
+      console.log('[RandomVideoChat] Search cancelled');
+      cleanup();
+      setStatus('idle');
+    });
+
+    socket.on('finding_new_partner', () => {
+      console.log('[RandomVideoChat] Finding new partner...');
+      setStatus('searching');
+    });
+
+    // WebRTC signaling
     socket.on('webrtc_signal', async (data) => {
+      console.log('[RandomVideoChat] WebRTC signal received:', data.type);
       try {
-        if (!peerConnection.current) {
+        if (!peerConnection.current && data.type !== 'candidate') {
           createPeerConnection(data.from._id);
         }
 
         if (data.type === 'offer') {
+          console.log('[RandomVideoChat] Handling offer');
           await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.signal));
           await flushPendingCandidates();
 
@@ -203,35 +228,32 @@ const RandomVideoChat = () => {
             type: 'answer'
           });
         } else if (data.type === 'answer') {
+          console.log('[RandomVideoChat] Handling answer');
           await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.signal));
           await flushPendingCandidates();
         } else if (data.type === 'candidate') {
-          if (peerConnection.current.remoteDescription) {
+          console.log('[RandomVideoChat] Handling ICE candidate');
+          if (peerConnection.current && peerConnection.current.remoteDescription) {
             await peerConnection.current.addIceCandidate(new RTCIceCandidate(data.signal));
           } else {
             pendingCandidates.current.push(data.signal);
           }
         }
-      } catch {
-        // Silent failure for WebRTC signal
+      } catch (err) {
+        console.error('[RandomVideoChat] WebRTC signal error:', err);
       }
     });
 
-    socket.on('video_error', (data) => {
-      setError(data.message);
-    });
-
-    socket.on('session_ended', () => {
-      handleEndSession();
-    });
-
     return () => {
+      console.log('[RandomVideoChat] Cleaning up socket listeners');
       socket.off('waiting_for_partner');
       socket.off('random_partner_found');
       socket.off('partner_left');
-      socket.off('webrtc_signal');
-      socket.off('video_error');
       socket.off('session_ended');
+      socket.off('video_error');
+      socket.off('search_cancelled');
+      socket.off('finding_new_partner');
+      socket.off('webrtc_signal');
     };
   }, [socket]);
 
@@ -239,11 +261,14 @@ const RandomVideoChat = () => {
     setError(null);
     const stream = await initializeMedia();
     if (!stream) return;
+
+    console.log('[RandomVideoChat] Starting to find random partner');
     socket?.emit('find_random_partner');
     setStatus('searching');
   };
 
   const cancelSearch = () => {
+    console.log('[RandomVideoChat] Cancelling search');
     socket?.emit('cancel_find_partner');
     cleanup();
     setStatus('idle');
@@ -299,11 +324,16 @@ const RandomVideoChat = () => {
     }
   };
 
+  // Cleanup socket listeners and leave queue on unmount
   useEffect(() => {
     return () => {
+      // Leave the random video queue if searching
+      if (socket && (status === 'searching' || status === 'connected')) {
+        socket.emit('cancel_find_partner');
+      }
       cleanup();
     };
-  }, []);
+  }, [socket, status]);
 
   const BG_PAGE = 'linear-gradient(180deg, #fff7f8 0%, #fff1f4 45%, #fff7f0 100%)';
   const cardStyle = {
@@ -321,11 +351,14 @@ const RandomVideoChat = () => {
   const showLanding = status === 'idle' || status === 'searching';
 
   return (
-    <div className="min-h-screen" style={{ background: BG_PAGE }}>
+    <div className="h-[100vh] w-screen overflow-hidden flex flex-col" style={{ background: BG_PAGE }}>
       <Navbar />
 
-      <main className="pt-10 pb-12 px-4">
-        <div className="max-w-4xl mx-auto">
+      <div className="flex-1 flex flex-row overflow-hidden min-h-0 relative w-full pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
+        <SidebarMenu />
+
+        <main className="flex-1 overflow-y-auto pt-4 md:pt-10 pb-4 md:pb-12 px-4 w-full min-w-0">
+          <div className="max-w-4xl mx-auto">
           {showLanding && (
             <div className="text-center">
               <div className="flex items-center justify-center">
@@ -577,6 +610,7 @@ const RandomVideoChat = () => {
           )}
         </div>
       </main>
+      </div>
     </div>
   );
 };

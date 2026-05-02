@@ -8,7 +8,12 @@ import User from '../../models/User.js';
 export const superLikeUser = async (req, res, next) => {
   try {
     const currentUserId = req.user._id;
-    const targetUserId = req.body.userId;
+    const targetUserIdRaw = req.body.userId;
+    const targetUserId = targetUserIdRaw ? Buffer.from(targetUserIdRaw, 'base64').toString('ascii') : null;
+
+    if (!targetUserId) {
+      return res.status(400).json({ success: false, message: 'Invalid user ID' });
+    }
 
     console.log('[SuperLike] User:', currentUserId, 'super liking:', targetUserId);
 

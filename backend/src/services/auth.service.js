@@ -1,5 +1,6 @@
 /**
- * Auth Service - Tách business logic khỏi controller
+ * Auth Service - Production-ready authentication
+ * All operations are safe, stable, and logged
  */
 
 import User from '../models/User.js';
@@ -10,9 +11,13 @@ import { generateOTP, getOTPExpiry } from '../utils/generateOTP.js';
 import { sendOTP } from '../utils/sendEmail.js';
 import { validateUsername, validateEmail, validatePassword } from '../utils/validators.js';
 
+// ===========================================
+// USER REGISTRATION
+// ===========================================
+
 export const registerUser = async ({ username, email, password, confirmPassword }) => {
-  const trimmedUsername = username?.trim() || '';
-  const trimmedEmail = email?.trim() || '';
+  const trimmedUsername = username?.trim().toLowerCase() || '';
+  const trimmedEmail = email?.trim().toLowerCase() || '';
   const trimmedPassword = password?.trim() || '';
 
   const usernameError = validateUsername(trimmedUsername);
@@ -30,13 +35,13 @@ export const registerUser = async ({ username, email, password, confirmPassword 
 
   const existingUser = await User.findOne({
     $or: [
-      { email: trimmedEmail.toLowerCase() },
+      { email: trimmedEmail },
       { username: trimmedUsername }
     ]
   });
 
   if (existingUser) {
-    if (existingUser.email === trimmedEmail.toLowerCase()) {
+    if (existingUser.email === trimmedEmail) {
       return { error: 'Email already registered', status: 400 };
     }
     return { error: 'Username already taken', status: 400 };
@@ -46,7 +51,7 @@ export const registerUser = async ({ username, email, password, confirmPassword 
 
   const user = await User.create({
     username: trimmedUsername,
-    email: trimmedEmail.toLowerCase(),
+    email: trimmedEmail,
     passwordHash,
     loginMethod: 'email',
     isEmailVerified: false,
@@ -56,63 +61,78 @@ export const registerUser = async ({ username, email, password, confirmPassword 
   const token = generateToken(user._id);
 
   return {
-    user: {
-      _id: user._id,
-      username: user.username,
-      email: user.email,
-      fullName: '',
-      age: null,
-      gender: '',
-      avatar: null,
-      bio: '',
-      location: null,
-      interests: [],
-      photos: [],
-      profileCompletion: 0
-    },
+    user: sanitizeUser(user),
     token,
     profileCompletion: 0,
     needsOnboarding: true
   };
 };
 
+// ===========================================
+// USER LOGIN
+// ===========================================
+
 export const loginUser = async ({ email, password, username, facebookId, googleId }, req = null) => {
-  let user;
+  const normalizedPassword = password?.trim() || '';
+  const identifier = (email || username)?.trim().toLowerCase();
 
-  if (email || username) {
-    user = await User.findOne({
-      $or: [
-        { email: (email || username).toLowerCase() },
-        { username: email || username }
-      ]
-    }).select('+password +passwordHash');
+  if (facebookId) {
+    return handleSocialLogin('facebook', facebookId, req);
+  }
 
-    if (!user) return { error: 'Invalid credentials', status: 401 };
+  if (googleId) {
+    return handleSocialLogin('google', googleId, req);
+  }
 
-    const isMatch = await comparePassword(password, user.passwordHash || user.password);
-    if (!isMatch) return { error: 'Invalid credentials', status: 401 };
-  } else if (facebookId) {
-    user = await User.findOne({ facebookId });
-    if (!user) return { error: 'Facebook account not linked', status: 401 };
-  } else if (googleId) {
-    user = await User.findOne({ googleId });
-    if (!user) return { error: 'Google account not linked', status: 401 };
-  } else {
-    return { error: 'Please provide credentials', status: 400 };
+  if (!identifier || !normalizedPassword) {
+    console.log('[Auth] Login failed: Missing identifier or password');
+    return { error: 'Email/username and password are required', status: 400 };
+  }
+
+  console.log(`[Auth] Login attempt for: ${identifier}`);
+
+  const user = await User.findOne({
+    $or: [
+      { email: identifier },
+      { username: identifier }
+    ]
+  }).select('+passwordHash');
+
+  if (!user) {
+    console.log(`[Auth] Login failed: User not found for ${identifier}`);
+    return { error: 'Email hoặc tên người dùng không tồn tại', status: 401 };
+  }
+
+  if (!user.passwordHash) {
+    console.error(`[Auth] Login failed: User ${identifier} has no passwordHash (social login user)`);
+    return { error: 'Tài khoản này đăng nhập bằng Google/Facebook. Vui lòng sử dụng đăng nhập mạng xã hội.', status: 401 };
   }
 
   if (user.isLocked) {
+    console.log(`[Auth] Login failed: Account locked for ${identifier}`);
     return { error: 'Account is locked. Please try again later.', status: 423 };
   }
 
-  user.lastLogin = new Date();
-  user.isOnline = true;
-  user.failedAttempts = 0;
-  await user.save({ validateBeforeSave: false });
+  const isMatch = await comparePassword(normalizedPassword, user.passwordHash);
+
+  if (!isMatch) {
+    console.log(`[Auth] Login failed: Invalid password for ${identifier}`);
+    return { error: 'Mật khẩu không đúng. Vui lòng thử lại.', status: 401 };
+  }
+
+  await User.updateOne(
+    { _id: user._id },
+    {
+      $set: {
+        lastLogin: new Date(),
+        isOnline: true,
+        failedAttempts: 0
+      }
+    }
+  );
 
   const token = generateToken(user._id);
 
-  // PB23: Tạo session record (nếu có req)
   if (req) {
     try {
       await UserSession.createSession(user._id, token, req);
@@ -121,23 +141,97 @@ export const loginUser = async ({ email, password, username, facebookId, googleI
     }
   }
 
-  return { user: user.toJSON(), token };
+  console.log(`[Auth] Login success for: ${identifier}`);
+  return { user: sanitizeUser(user), token };
 };
+
+// ===========================================
+// SOCIAL LOGIN HANDLER
+// ===========================================
+
+async function handleSocialLogin(provider, profileId, req) {
+  console.log(`[Auth] Social login attempt via ${provider}`);
+
+  const field = provider === 'google' ? 'googleId' : 'facebookId';
+  let user = await User.findOne({ [field]: profileId });
+
+  if (!user && req?.body?.email) {
+    const email = req.body.email.trim().toLowerCase();
+    user = await User.findOne({ email });
+
+    if (user) {
+      await User.updateOne(
+        { _id: user._id },
+        {
+          $set: {
+            [field]: profileId,
+            loginMethod: provider,
+            isEmailVerified: true
+          }
+        }
+      );
+      console.log(`[Auth] Linked ${provider} to existing user: ${email}`);
+    }
+  }
+
+  if (!user) {
+    const email = req?.body?.email?.trim().toLowerCase();
+    const safeUsername = await generateSafeUsername(
+      req?.body?.fullName || email || profileId,
+      provider
+    );
+
+    const passwordHash = await hashPassword(`social_${provider}_${Date.now()}`);
+
+    user = await User.create({
+      [field]: profileId,
+      email: email || undefined,
+      username: safeUsername,
+      fullName: req?.body?.fullName || '',
+      avatar: req?.body?.avatar || '',
+      loginMethod: provider,
+      isEmailVerified: true,
+      passwordHash
+    });
+    console.log(`[Auth] Created new social user: ${safeUsername}`);
+  }
+
+  await User.updateOne(
+    { _id: user._id },
+    {
+      $set: {
+        lastLogin: new Date(),
+        isOnline: true
+      }
+    }
+  );
+
+  const token = generateToken(user._id);
+  console.log(`[Auth] Social login success: ${provider} user`);
+
+  return { user: sanitizeUser(user), token };
+}
+
+// ===========================================
+// CURRENT USER
+// ===========================================
 
 export const getCurrentUserById = async (userId) => {
   const user = await User.findById(userId);
   if (!user) return { error: 'User not found', status: 404 };
-  return { user };
+  return { user: sanitizeUser(user) };
 };
 
-export const logoutUser = async (userId, token = null) => {
-  const user = await User.findById(userId);
-  if (user) {
-    user.isOnline = false;
-    await user.save({ validateBeforeSave: false });
-  }
+// ===========================================
+// LOGOUT
+// ===========================================
 
-  // PB23: Revoke session khi logout
+export const logoutUser = async (userId, token = null) => {
+  await User.updateOne(
+    { _id: userId },
+    { $set: { isOnline: false } }
+  );
+
   if (token) {
     try {
       await UserSession.revokeByToken(token);
@@ -146,91 +240,13 @@ export const logoutUser = async (userId, token = null) => {
     }
   }
 
+  console.log(`[Auth] User ${userId} logged out`);
   return { success: true };
 };
 
-const generateSafeUsername = async (displayName, provider) => {
-  const MAX_LENGTH = 30;
-  const RANDOM_SUFFIX_LENGTH = 3;
-
-  let baseUsername = (displayName || 'user')
-    .toLowerCase()
-    .replace(/\s+/g, '')
-    .replace(/[^a-z0-9]/g, '');
-
-  const maxBaseLength = MAX_LENGTH - RANDOM_SUFFIX_LENGTH - 1;
-  if (baseUsername.length > maxBaseLength) {
-    baseUsername = baseUsername.substring(0, maxBaseLength);
-  }
-
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const randomSuffix = Math.random().toString(36).substring(2, 2 + RANDOM_SUFFIX_LENGTH);
-    const candidateUsername = `${baseUsername}_${randomSuffix}`;
-    const existingUser = await User.findOne({ username: candidateUsername });
-    if (!existingUser) return candidateUsername;
-  }
-
-  const timestampSuffix = Date.now().toString().slice(-5);
-  return baseUsername.substring(0, MAX_LENGTH - 6) + '_' + timestampSuffix;
-};
-
-const linkSocialAccount = async (user, profile, provider, photos) => {
-  if (provider === 'google') user.googleId = profile.id;
-  else if (provider === 'facebook') user.facebookId = profile.id;
-
-  user.loginMethod = provider;
-  user.isEmailVerified = true;
-  if (photos?.[0]?.value && !user.avatar) user.avatar = photos[0].value;
-  user.lastLogin = new Date();
-  user.isOnline = true;
-  await user.save({ validateBeforeSave: false });
-  return user;
-};
-
-export const socialLogin = async ({ facebookId, googleId, email, username, fullName, avatar }) => {
-  let user;
-  let provider = facebookId ? 'facebook' : 'google';
-  let profileId = facebookId || googleId;
-
-  user = await User.findOne({ [provider === 'google' ? 'googleId' : 'facebookId']: profileId });
-
-  if (!user && email) {
-    const existingByEmail = await User.findOne({ email: email.toLowerCase() });
-    if (existingByEmail) {
-      if (provider === 'google') existingByEmail.googleId = googleId;
-      else existingByEmail.facebookId = facebookId;
-      existingByEmail.loginMethod = provider;
-      existingByEmail.isEmailVerified = true;
-      if (avatar && !existingByEmail.avatar) existingByEmail.avatar = avatar;
-      existingByEmail.lastLogin = new Date();
-      existingByEmail.isOnline = true;
-      await existingByEmail.save({ validateBeforeSave: false });
-      user = existingByEmail;
-    }
-  }
-
-  if (!user) {
-    const safeUsername = username || await generateSafeUsername(fullName || email || profileId, provider);
-    user = await User.create({
-      [provider === 'google' ? 'googleId' : 'facebookId']: profileId,
-      email: email?.toLowerCase(),
-      username: safeUsername,
-      fullName: fullName || '',
-      avatar: avatar || '',
-      loginMethod: provider,
-      isEmailVerified: true,
-      passwordHash: 'SOCIAL_LOGIN_' + Date.now()
-    });
-  }
-
-  user.lastLogin = new Date();
-  user.isOnline = true;
-  user.failedAttempts = 0;
-  await user.save({ validateBeforeSave: false });
-
-  const token = generateToken(user._id);
-  return { user: user.toJSON(), token };
-};
+// ===========================================
+// LINK SOCIAL ACCOUNT TO USER
+// ===========================================
 
 export const linkSocialAccountToUser = async (userId, { facebookId, googleId }) => {
   const user = await User.findById(userId);
@@ -241,17 +257,27 @@ export const linkSocialAccountToUser = async (userId, { facebookId, googleId }) 
   const idValue = facebookId || googleId;
 
   const existingUser = await User.findOne({ [field]: idValue });
-  if (existingUser && existingUser._id.toString() !== user._id.toString()) {
+  if (existingUser && existingUser._id.toString() !== userId) {
     return { error: `${provider} account already linked to another user`, status: 400 };
   }
 
-  if (provider === 'google') user.googleId = googleId;
-  else user.facebookId = facebookId;
-  user.loginMethod = provider;
-  await user.save();
+  await User.updateOne(
+    { _id: userId },
+    {
+      $set: {
+        [field]: idValue,
+        loginMethod: provider
+      }
+    }
+  );
 
-  return { user: user.toJSON() };
+  console.log(`[Auth] Linked ${provider} to user ${userId}`);
+  return { user: sanitizeUser(user) };
 };
+
+// ===========================================
+// PASSWORD RESET
+// ===========================================
 
 export const requestPasswordReset = async ({ email }) => {
   const trimmedEmail = email?.trim()?.toLowerCase();
@@ -272,13 +298,17 @@ export const requestPasswordReset = async ({ email }) => {
   const otp = generateOTP();
   const otpExpire = getOTPExpiry();
 
-  user.resetOTP = otp;
-  user.resetOtpExpire = otpExpire;
-  await user.save({ validateBeforeSave: false });
+  await User.updateOne(
+    { _id: user._id },
+    {
+      $set: {
+        resetOTP: otp,
+        resetOtpExpire: otpExpire
+      }
+    }
+  );
 
-  // Debug: log OTP in development
-  console.log(`[OTP DEBUG] For ${trimmedEmail}: ${otp} (expires in 5 min)`);
-
+  console.log(`[OTP] Generated for ${trimmedEmail}`);
   await sendOTP(trimmedEmail, otp);
 
   return { message: 'If your email is registered, you will receive an OTP code' };
@@ -307,6 +337,7 @@ export const verifyPasswordResetOTP = async ({ email, otp }) => {
     return { error: 'Invalid OTP. Please try again.', status: 400 };
   }
 
+  console.log(`[OTP] Verified for ${trimmedEmail}`);
   return { message: 'OTP verified successfully' };
 };
 
@@ -323,7 +354,7 @@ export const resetUserPassword = async ({ email, otp, newPassword }) => {
     return { error: 'Password must be at least 6 characters', status: 400 };
   }
 
-  const user = await User.findOne({ email: trimmedEmail }).select('+password +passwordHash');
+  const user = await User.findOne({ email: trimmedEmail }).select('+passwordHash');
   if (!user) return { error: 'Invalid email or OTP', status: 400 };
 
   if (!user.resetOTP || !user.resetOtpExpire) {
@@ -338,20 +369,96 @@ export const resetUserPassword = async ({ email, otp, newPassword }) => {
     return { error: 'Invalid OTP. Please try again.', status: 400 };
   }
 
-  user.passwordHash = await hashPassword(trimmedPassword);
-  user.resetOTP = undefined;
-  user.resetOtpExpire = undefined;
-  await user.save({ validateBeforeSave: false });
+  const passwordHash = await hashPassword(trimmedPassword);
 
+  await User.updateOne(
+    { _id: user._id },
+    {
+      $set: {
+        passwordHash,
+        resetOTP: null,
+        resetOtpExpire: null
+      },
+      $unset: {
+        resetOTP: '',
+        resetOtpExpire: ''
+      }
+    }
+  );
+
+  console.log(`[Auth] Password reset successful for ${trimmedEmail}`);
   return { message: 'Password has been reset successfully. You can now login with your new password.' };
 };
+
+// ===========================================
+// HELPERS
+// ===========================================
+
+async function generateSafeUsername(displayName, provider) {
+  const MAX_LENGTH = 30;
+  const RANDOM_SUFFIX_LENGTH = 3;
+
+  let baseUsername = (displayName || 'user')
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[^a-z0-9]/g, '');
+
+  if (!baseUsername) baseUsername = 'user';
+
+  const maxBaseLength = MAX_LENGTH - RANDOM_SUFFIX_LENGTH - 1;
+  if (baseUsername.length > maxBaseLength) {
+    baseUsername = baseUsername.substring(0, maxBaseLength);
+  }
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const randomSuffix = Math.random().toString(36).substring(2, 2 + RANDOM_SUFFIX_LENGTH);
+    const candidateUsername = `${baseUsername}_${randomSuffix}`;
+    const existingUser = await User.findOne({ username: candidateUsername });
+    if (!existingUser) return candidateUsername;
+  }
+
+  const timestampSuffix = Date.now().toString().slice(-5);
+  return baseUsername.substring(0, MAX_LENGTH - 6) + '_' + timestampSuffix;
+}
+
+function sanitizeUser(user) {
+  if (!user) return null;
+  return {
+    _id: user._id,
+    username: user.username,
+    email: user.email,
+    fullName: user.fullName || '',
+    age: user.age || null,
+    gender: user.gender || '',
+    avatar: user.avatar || null,
+    bio: user.bio || '',
+    location: user.location || null,
+    interests: user.interests || [],
+    photos: user.photos || [],
+    profileCompletion: user.profileCompletion || 0,
+    loginMethod: user.loginMethod,
+    isEmailVerified: user.isEmailVerified,
+    isOnline: user.isOnline,
+    lastLogin: user.lastLogin,
+    role: user.role,
+    createdAt: user.createdAt
+  };
+}
+
+// ===========================================
+// EXPORTS
+// ===========================================
 
 export default {
   registerUser,
   loginUser,
   getCurrentUserById,
   logoutUser,
-  socialLogin,
+  socialLogin: (data, req) => handleSocialLogin(
+    data.facebookId ? 'facebook' : 'google',
+    data.facebookId || data.googleId,
+    req
+  ),
   linkSocialAccountToUser,
   requestPasswordReset,
   verifyPasswordResetOTP,

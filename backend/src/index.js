@@ -5,16 +5,17 @@ import { Server } from 'socket.io';
 import mongoose from 'mongoose';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createAdapter } from '@socket.io/redis-adapter';
 
 import cookieSession from 'cookie-session';
-
 import config from './config/index.js';
 import passport from './config/passport.js';
 import { authRoutes, userRoutes, matchRoutes, messageRoutes, adminRoutes, discoveryRoutes, interestRoutes, safetyRoutes } from './routes/index.js';
+import aiRoutes from './routes/ai.routes.js';
 import userProfileRoutes from './routes/userProfile.routes.js';
 import profileRoutes from './routes/profileRoutes.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
-import { initializeSocket } from './socket/index.js';
+import { initializeSocket, initializeRedis, createRedisAdapterClients } from './socket/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -73,8 +74,35 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
+// FIX #7: CORS config for Socket.IO with regex for Vercel domains
+const getSocketCors = () => {
+  const origins = [];
+  
+  // Add explicit client URL
+  if (process.env.CLIENT_URL) {
+    origins.push(process.env.CLIENT_URL);
+  }
+  
+  // Add Vercel domains regex
+  origins.push(/\.vercel\.app$/);
+  
+  // Add localhost for development
+  if (!config.isProduction) {
+    origins.push('http://localhost:5173');
+    origins.push('http://localhost:3000');
+    origins.push('http://127.0.0.1:5173');
+    origins.push('http://127.0.0.1:3000');
+  }
+  
+  return {
+    origin: origins,
+    credentials: true,
+    methods: ['GET', 'POST']
+  };
+};
+
 const io = new Server(httpServer, {
-  cors: corsOptions
+  cors: getSocketCors()
 });
 
 app.use(express.json());
@@ -137,6 +165,7 @@ app.use('/api/match', matchRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/v1/profiles', profileRoutes);
 app.use('/api/profile', userProfileRoutes);
+app.use('/api/ai', aiRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
@@ -147,8 +176,28 @@ app.set('io', io);
 // ===========================================
 // GRACEFUL SHUTDOWN
 // ===========================================
-const gracefulShutdown = (signal) => {
+const gracefulShutdown = async (signal) => {
   console.log(`\n[${signal}] Shutting down gracefully...`);
+
+  // Close Redis connections
+  try {
+    const { pubClient, subClient, getRedisClient } = await import('./socket/index.js');
+    const mainClient = getRedisClient();
+    
+    if (mainClient) {
+      await mainClient.quit();
+      console.log('[REDIS] Main client closed');
+    }
+    if (pubClient) {
+      await pubClient.quit();
+    }
+    if (subClient) {
+      await subClient.quit();
+    }
+    console.log('[REDIS] All connections closed');
+  } catch (err) {
+    console.error('[REDIS] Error closing connections:', err.message);
+  }
 
   if (server) {
     server.close(() => {
@@ -188,11 +237,31 @@ const startServer = async () => {
     await mongoose.connect(config.mongodbUri);
     console.log(`[${config.nodeEnv}] Connected to MongoDB`);
 
+    // FIX #3 & #6: Initialize Redis globally BEFORE socket
+    const redisClient = await initializeRedis();
+
+    // FIX #6: Set up Redis adapter for multi-instance support
+    if (redisClient && config.isProduction) {
+      try {
+        console.log('[SOCKET] Setting up Redis adapter for multi-instance support...');
+        const { pubClient, subClient } = createRedisAdapterClients();
+        
+        await Promise.all([pubClient.connect(), subClient.connect()]);
+        
+        io.adapter(createAdapter(pubClient, subClient));
+        console.log('[SOCKET] Redis adapter enabled - multi-instance support active');
+      } catch (adapterError) {
+        console.error('[SOCKET] Failed to setup Redis adapter:', adapterError.message);
+        console.warn('[SOCKET] Falling back to single-instance mode');
+      }
+    }
+
     server = httpServer.listen(config.port, () => {
       isServerRunning = true;
       console.log(`Server running on port ${config.port}`);
       console.log(`Environment: ${config.nodeEnv}`);
       console.log(`Allowed Origins: ${config.allowedOrigins.join(', ')}`);
+      console.log(`Client URL: ${process.env.CLIENT_URL || config.frontendUrl}`);
     });
 
     // Xử lý lỗi khi port đã dùng

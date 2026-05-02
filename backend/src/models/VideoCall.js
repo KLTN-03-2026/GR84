@@ -16,6 +16,11 @@ const videoCallSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  sessionType: {
+    type: String,
+    enum: ['random', 'direct'],
+    default: 'direct'
+  },
   startedAt: {
     type: Date,
     default: Date.now

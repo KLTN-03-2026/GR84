@@ -4,10 +4,37 @@ import User from '../models/User.js';
 import Message from '../models/Message.js';
 import Match from '../models/Match.js';
 import VideoCall from '../models/VideoCall.js';
+import redis, {
+  removeFromWaitingQueue,
+  getValidPartner,
+  getQueueSize,
+  addToWaitingQueue
+} from './redis.js';
 
-let waitingUsers = [];
+// Redis instance and helpers are imported from ./redis.js
+
+
+// ===========================================
+// STATE - In-memory (per instance)
+// ===========================================
+
+// ===========================================
+// STATE - In-memory (per instance)
+// ===========================================
+
+// User to socket mapping for direct calls and emitting
+let userSocketMap = {};
+
+
+
+// ===========================================
+// INITIALIZE SOCKET
+// ===========================================
 
 export const initializeSocket = (io) => {
+  // ===========================================
+  // AUTHENTICATION MIDDLEWARE
+  // ===========================================
   const authenticateSocket = async (socket, next) => {
     try {
       const token = socket.handshake.auth.token;
@@ -36,28 +63,55 @@ export const initializeSocket = (io) => {
 
   io.use(authenticateSocket);
 
-  io.on('connection', (socket) => {
-    console.log(`User connected: ${socket.user.username} (${socket.id})`);
+  // ===========================================
+  // CONNECTION HANDLER
+  // ===========================================
+  io.on('connection', async (socket) => {
+    const userId = socket.user._id.toString();
+    const username = socket.user.username;
 
-    socket.join(`user:${socket.user._id}`);
+    console.log(`[Socket] Connected: ${username} (${userId}) socket:${socket.id}`);
 
+    // Connect to Redis if not connected
+    if (redis.status !== 'ready' && redis.status !== 'connecting') {
+      try {
+        await redis.connect();
+      } catch (err) {
+        console.error('[Socket] Redis connect failed:', err.message);
+      }
+    }
+
+    // Store user socket mapping
+    userSocketMap[userId] = socket.id;
+
+    // Join personal room for direct calls
+    socket.join(`user:${userId}`);
+
+    // Update online status
     User.findByIdAndUpdate(socket.user._id, {
       isOnline: true,
       lastSeen: new Date()
     }, { new: true }).exec();
 
+    // ===========================================
+    // CHAT - Room Management
+    // ===========================================
+
     socket.on('join_room', (matchId) => {
       if (!matchId) return;
-
       socket.join(`match:${matchId}`);
-      console.log(`User ${socket.user.username} joined room: ${matchId}`);
+      console.log(`[Chat] ${username} joined room: ${matchId}`);
     });
 
     socket.on('leave_room', (matchId) => {
       if (!matchId) return;
-
       socket.leave(`match:${matchId}`);
+      console.log(`[Chat] ${username} left room: ${matchId}`);
     });
+
+    // ===========================================
+    // CHAT - Messages
+    // ===========================================
 
     socket.on('send_message', async (data) => {
       try {
@@ -93,7 +147,6 @@ export const initializeSocket = (io) => {
           status: 'sent'
         });
 
-        // FIX: Populate sender with full user info (name, avatar)
         const populatedMessage = await Message.findById(message._id)
           .populate('sender', 'username fullName avatar');
 
@@ -102,7 +155,7 @@ export const initializeSocket = (io) => {
 
         io.to(`match:${matchId}`).emit('receive_message', populatedMessage);
       } catch (error) {
-        console.error('Error in send_message:', error);
+        console.error('[Chat] send_message error:', error);
         socket.emit('error', { message: 'Failed to send message' });
       }
     });
@@ -113,10 +166,7 @@ export const initializeSocket = (io) => {
 
       socket.to(`match:${matchId}`).emit('user_typing', {
         matchId,
-        user: {
-          _id: socket.user._id,
-          username: socket.user.username
-        }
+        user: { _id: socket.user._id, username: socket.user.username }
       });
     });
 
@@ -151,88 +201,39 @@ export const initializeSocket = (io) => {
 
         socket.to(`match:${matchId}`).emit('messages_read', {
           matchId,
-          reader: {
-            _id: socket.user._id,
-            username: socket.user.username
-          }
+          reader: { _id: socket.user._id, username: socket.user.username }
         });
       } catch (error) {
-        console.error('Error in message_read:', error);
+        console.error('[Chat] message_read error:', error);
       }
     });
 
-    socket.on('call_user', (data) => {
-      const { targetUserId, signalData, callType } = data;
+    // ===========================================
+    // SYSTEM 1: RANDOM VIDEO MATCH (Redis-based)
+    // ===========================================
 
-      if (!targetUserId || !signalData) return;
-
-      io.to(`user:${targetUserId}`).emit('incoming_call', {
-        signal: signalData,
-        caller: {
-          _id: socket.user._id,
-          username: socket.user.username,
-          avatar: socket.user.avatar
-        },
-        callType
-      });
-    });
-
-    socket.on('accept_call', (data) => {
-      const { callerId, signalData } = data;
-
-      if (!callerId || !signalData) return;
-
-      io.to(`user:${callerId}`).emit('call_accepted', {
-        signal: signalData,
-        callee: {
-          _id: socket.user._id,
-          username: socket.user.username,
-          avatar: socket.user.avatar
-        }
-      });
-    });
-
-    socket.on('reject_call', (data) => {
-      const { callerId } = data;
-
-      if (!callerId) return;
-
-      io.to(`user:${callerId}`).emit('call_rejected', {
-        callee: {
-          _id: socket.user._id,
-          username: socket.user.username
-        }
-      });
-    });
-
-    socket.on('end_call', (data) => {
-      const { targetUserId } = data;
-
-      if (!targetUserId) return;
-
-      io.to(`user:${targetUserId}`).emit('call_ended', {
-        caller: {
-          _id: socket.user._id,
-          username: socket.user.username
-        }
-      });
-    });
-
-    // Random video chat events
+    /**
+     * Find random partner - Redis queue matching
+     */
     socket.on('find_random_partner', async () => {
+      const currentUserId = userId;
+      console.log(`[RANDOM] find_random_partner: ${username} (${currentUserId})`);
+
       try {
-        const currentUserId = socket.user._id.toString();
-        
-        // Remove user from waiting list if already there
-        waitingUsers = waitingUsers.filter(id => id !== currentUserId);
-        
-        // Find a waiting user who is not the current user
-        const partnerId = waitingUsers.find(id => id !== currentUserId);
-        
+        // Remove any existing entry (idempotent)
+        await removeFromWaitingQueue(currentUserId);
+
+        const queueSize = await getQueueSize();
+        console.log(`[RANDOM][REDIS] Queue size: ${queueSize}`);
+
+        // Try to find a valid partner
+        const partnerId = await getValidPartner(currentUserId, userSocketMap);
+
         if (partnerId) {
-          // Found a partner - create video session
-          waitingUsers = waitingUsers.filter(id => id !== partnerId);
-          
+          // MATCH FOUND
+          console.log(`[RANDOM] MATCH: ${username} <-> ${partnerId}`);
+
+          // Create session in DB
           const session = await VideoCall.create({
             callerId: currentUserId,
             receiverId: partnerId,
@@ -240,111 +241,151 @@ export const initializeSocket = (io) => {
             status: 'connected',
             startedAt: new Date()
           });
-          
-          const partner = await User.findById(partnerId).select('username avatar');
-          const currentUser = await User.findById(currentUserId).select('username avatar');
-          
-          // Notify both users
-          io.to(`user:${partnerId}`).emit('random_partner_found', {
-            sessionId: session._id,
-            partner: currentUser,
-            sessionType: 'random'
-          });
-          
+
+          const sessionId = session._id.toString();
+
+          // Get user info
+          const partner = await User.findById(partnerId).select('username avatar _id').lean();
+          const currentUser = await User.findById(currentUserId).select('username avatar _id').lean();
+
+          // Emit to current user
           socket.emit('random_partner_found', {
-            sessionId: session._id,
+            sessionId,
             partner: partner,
             sessionType: 'random'
           });
-          
-          console.log(`Random video session created: ${currentUserId} <-> ${partnerId}`);
+
+          // Emit to partner via socket ID
+          const partnerSocketId = userSocketMap[partnerId];
+          if (partnerSocketId) {
+            io.to(partnerSocketId).emit('random_partner_found', {
+              sessionId,
+              partner: currentUser,
+              sessionType: 'random'
+            });
+            console.log(`[RANDOM] Notified partner ${partnerId} via socket ${partnerSocketId}`);
+          }
+
         } else {
-          // No partner found - add user to waiting list
-          waitingUsers.push(currentUserId);
+          // NO PARTNER - Add to Redis queue
+          await addToWaitingQueue(currentUserId);
           socket.emit('waiting_for_partner');
-          console.log(`User ${socket.user.username} is waiting for a partner`);
+
+          const newQueueSize = await getQueueSize();
+          console.log(`[RANDOM][REDIS] Added to queue. Queue size: ${newQueueSize}`);
         }
       } catch (error) {
-        console.error('Error in find_random_partner:', error);
+        console.error('[RANDOM] Error in find_random_partner:', error);
         socket.emit('video_error', { message: 'Failed to find partner' });
       }
     });
 
-    socket.on('cancel_find_partner', () => {
-      const currentUserId = socket.user._id.toString();
-      waitingUsers = waitingUsers.filter(id => id !== currentUserId);
-      socket.emit('search_cancelled');
+    /**
+     * Cancel search - remove from Redis queue
+     */
+    socket.on('cancel_find_partner', async () => {
+      const currentUserId = userId;
+
+      try {
+        await removeFromWaitingQueue(currentUserId);
+        const queueSize = await getQueueSize();
+        console.log(`[RANDOM] Cancelled: ${username}. Queue: ${queueSize}`);
+        socket.emit('search_cancelled');
+      } catch (error) {
+        console.error('[RANDOM] Error in cancel_find_partner:', error);
+        socket.emit('search_cancelled');
+      }
     });
 
+    /**
+     * Skip current partner and find new one
+     */
     socket.on('next_random', async (data) => {
+      const { sessionId, partnerId } = data;
+      console.log(`[RANDOM] next_random: ${username} session:${sessionId}`);
+
       try {
-        const { sessionId, partnerId } = data;
-        const currentUserId = socket.user._id.toString();
-        
         // End current session
         if (sessionId) {
           await VideoCall.findByIdAndUpdate(sessionId, {
             status: 'ended',
             endedAt: new Date()
           });
+
+          // Notify partner via socket
+          if (partnerId && userSocketMap[partnerId]) {
+            io.to(userSocketMap[partnerId]).emit('partner_left');
+            console.log(`[RANDOM] Notified partner left: ${partnerId}`);
+          }
         }
-        
-        // ============================================
-        // 🐛 FIX: Notify PARTNER (not self) that current user left
-        // socket.to(`user:${currentUserId}`) → emits to self (wrong!)
-        // Should emit to partnerId
-        // ============================================
-        if (partnerId) {
-          io.to(`user:${partnerId}`).emit('partner_left');
-        }
-        
-        // Find new partner
+
+        // Remove from queue (idempotent)
+        await removeFromWaitingQueue(userId);
+
         socket.emit('finding_new_partner');
-        
+
         // Small delay before finding new partner
         setTimeout(async () => {
-          const partnerId = waitingUsers.find(id => id !== currentUserId);
-          
-          if (partnerId) {
-            waitingUsers = waitingUsers.filter(id => id !== partnerId);
-            
-            const session = await VideoCall.create({
-              callerId: currentUserId,
-              receiverId: partnerId,
-              sessionType: 'random',
-              status: 'connected',
-              startedAt: new Date()
-            });
-            
-            const partner = await User.findById(partnerId).select('username avatar');
-            const currentUser = await User.findById(currentUserId).select('username avatar');
-            
-            io.to(`user:${partnerId}`).emit('random_partner_found', {
-              sessionId: session._id,
-              partner: currentUser,
-              sessionType: 'random'
-            });
-            
-            socket.emit('random_partner_found', {
-              sessionId: session._id,
-              partner: partner,
-              sessionType: 'random'
-            });
-          } else {
-            waitingUsers.push(currentUserId);
-            socket.emit('waiting_for_partner');
+          try {
+            // Find new partner from Redis queue
+            const newPartnerId = await getValidPartner(userId, userSocketMap);
+
+            if (newPartnerId) {
+              console.log(`[RANDOM] NEW MATCH: ${username} <-> ${newPartnerId}`);
+
+              const session = await VideoCall.create({
+                callerId: userId,
+                receiverId: newPartnerId,
+                sessionType: 'random',
+                status: 'connected',
+                startedAt: new Date()
+              });
+
+              const newSessionId = session._id.toString();
+
+              const newPartner = await User.findById(newPartnerId).select('username avatar _id').lean();
+              const currentUser = await User.findById(userId).select('username avatar _id').lean();
+
+              socket.emit('random_partner_found', {
+                sessionId: newSessionId,
+                partner: newPartner,
+                sessionType: 'random'
+              });
+
+              const newPartnerSocketId = userSocketMap[newPartnerId];
+              if (newPartnerSocketId) {
+                io.to(newPartnerSocketId).emit('random_partner_found', {
+                  sessionId: newSessionId,
+                  partner: currentUser,
+                  sessionType: 'random'
+                });
+              }
+
+            } else {
+              // No partners - add to Redis queue
+              await addToWaitingQueue(userId);
+              socket.emit('waiting_for_partner');
+              console.log(`[RANDOM] No partners. Added to queue.`);
+            }
+          } catch (err) {
+            console.error('[RANDOM] Error finding new partner:', err);
+            socket.emit('video_error', { message: 'Failed to find new partner' });
           }
         }, 1000);
       } catch (error) {
-        console.error('Error in next_random:', error);
+        console.error('[RANDOM] Error in next_random:', error);
         socket.emit('video_error', { message: 'Failed to find new partner' });
       }
     });
 
+    /**
+     * End random session
+     */
     socket.on('end_random_session', async (data) => {
+      const { sessionId, partnerId } = data;
+      console.log(`[RANDOM] end_session: ${username} session:${sessionId}`);
+
       try {
-        const { sessionId, partnerId } = data;
-        
         if (sessionId) {
           const session = await VideoCall.findById(sessionId);
           if (session) {
@@ -354,101 +395,262 @@ export const initializeSocket = (io) => {
             await session.save();
           }
         }
-        
+
         // Notify partner
-        if (partnerId) {
-          io.to(`user:${partnerId}`).emit('partner_left');
+        if (partnerId && userSocketMap[partnerId]) {
+          io.to(userSocketMap[partnerId]).emit('partner_left');
+          console.log(`[RANDOM] Notified partner ended: ${partnerId}`);
         }
-        
-        // Remove from waiting list
-        const currentUserId = socket.user._id.toString();
-        waitingUsers = waitingUsers.filter(id => id !== currentUserId);
-        
+
+        // Remove from Redis queue (idempotent)
+        await removeFromWaitingQueue(userId);
+
         socket.emit('session_ended');
       } catch (error) {
-        console.error('Error in end_random_session:', error);
+        console.error('[RANDOM] Error in end_random_session:', error);
       }
     });
 
-    // WebRTC signaling for video calls
-    socket.on('webrtc_signal', (data) => {
-      const { targetUserId, signal, type } = data;
-      
-      if (!targetUserId || !signal) return;
-      
-      io.to(`user:${targetUserId}`).emit('webrtc_signal', {
-        signal,
-        type,
-        from: {
+    // ===========================================
+    // SYSTEM 2: DIRECT VIDEO CALL (in-memory)
+    // ===========================================
+
+    /**
+     * Initiate a call to specific user
+     */
+    socket.on('call_user', (data) => {
+      const { targetUserId, signalData, callType, matchId, callId } = data;
+
+      if (!targetUserId || !signalData) {
+        console.warn('[CALL] Invalid call data');
+        return;
+      }
+
+      const targetSocketId = userSocketMap[targetUserId];
+
+      console.log(`[CALL] Initiate: ${username} (${userId}) → ${targetUserId} match:${matchId} callId:${callId}`);
+
+      if (!targetSocketId) {
+        socket.emit('call_error', { message: 'User is offline' });
+        return;
+      }
+
+      io.to(targetSocketId).emit('incoming_call', {
+        signal: signalData,
+        caller: {
           _id: socket.user._id,
-          username: socket.user.username
-        }
+          username: socket.user.username,
+          avatar: socket.user.avatar
+        },
+        callType: callType || 'video',
+        matchId,
+        callId
       });
     });
 
+    /**
+     * Accept incoming call
+     */
+    socket.on('accept_call', (data) => {
+      const { callerId, signalData, callId } = data;
+
+      if (!callerId || !signalData) {
+        console.warn('[CALL] Invalid accept data');
+        return;
+      }
+
+      const callerSocketId = userSocketMap[callerId];
+
+      console.log(`[CALL] Accepted: ${username} → ${callerId} callId:${callId}`);
+
+      if (callerSocketId) {
+        io.to(callerSocketId).emit('call_accepted', {
+          signal: signalData,
+          callee: {
+            _id: socket.user._id,
+            username: socket.user.username,
+            avatar: socket.user.avatar
+          },
+          callId
+        });
+      }
+    });
+
+    /**
+     * Reject incoming call
+     */
+    socket.on('reject_call', (data) => {
+      const { callerId } = data;
+
+      if (!callerId) return;
+
+      const callerSocketId = userSocketMap[callerId];
+
+      console.log(`[CALL] Rejected: ${username} → ${callerId}`);
+
+      if (callerSocketId) {
+        io.to(callerSocketId).emit('call_rejected', {
+          callee: {
+            _id: socket.user._id,
+            username: socket.user.username
+          }
+        });
+      }
+    });
+
+    /**
+     * End active call
+     */
+    socket.on('end_call', (data) => {
+      const { targetUserId } = data;
+
+      if (!targetUserId) return;
+
+      const targetSocketId = userSocketMap[targetUserId];
+
+      console.log(`[CALL] Ended: ${username} ↔ ${targetUserId}`);
+
+      if (targetSocketId) {
+        io.to(targetSocketId).emit('call_ended', {
+          caller: {
+            _id: socket.user._id,
+            username: socket.user.username
+          }
+        });
+      }
+    });
+
+    /**
+     * Relay ICE Candidates
+     */
+    socket.on('ice_candidate', (data) => {
+      const { targetUserId, candidate, matchId } = data;
+
+      if (!targetUserId || !candidate) return;
+
+      const targetSocketId = userSocketMap[targetUserId];
+
+      if (targetSocketId) {
+        io.to(targetSocketId).emit('ice_candidate', {
+          candidate,
+          from: socket.user._id,
+          matchId
+        });
+      }
+    });
+
+    // ===========================================
+    // WebRTC SIGNALING (in-memory emit)
+    // ===========================================
+
+    /**
+     * WebRTC signal relay (offer/answer/candidate)
+     */
+    socket.on('webrtc_signal', (data) => {
+      const { targetUserId, signal, type, callId } = data;
+
+      if (!targetUserId || !signal) {
+        console.warn('[WebRTC] Invalid signal data');
+        return;
+      }
+
+      const targetSocketId = userSocketMap[targetUserId];
+
+      if (targetSocketId) {
+        console.log(`[WebRTC] Relaying ${type} from ${userId} to ${targetUserId} callId:${callId}`);
+        io.to(targetSocketId).emit('webrtc_signal', {
+          signal,
+          type,
+          callId,
+          from: {
+            _id: socket.user._id,
+            username: socket.user.username
+          }
+        });
+      }
+    });
+
+    /**
+     * ICE candidate for direct calls
+     */
+    socket.on('ice_candidate', (data) => {
+      const { targetUserId, candidate } = data;
+
+      if (!targetUserId || !candidate) return;
+
+      const targetSocketId = userSocketMap[targetUserId];
+
+      if (targetSocketId) {
+        io.to(targetSocketId).emit('ice_candidate', {
+          candidate,
+          from: socket.user._id
+        });
+      }
+    });
+
+    // ===========================================
+    // DISCONNECT
+    // ===========================================
+
     socket.on('disconnect', async (reason) => {
-      console.log(`User disconnected: ${socket.user.username} (${reason})`);
+      console.log(`[Socket] Disconnected: ${username} (${reason})`);
 
       try {
-        const currentUserId = socket.user._id.toString();
-        
-        // Remove from waiting list
-        waitingUsers = waitingUsers.filter(id => id !== currentUserId);
-        
+        // Remove from Redis waiting queue
+        await removeFromWaitingQueue(userId);
+        console.log(`[RANDOM][REDIS] Removed from queue on disconnect: ${userId}`);
+
+        // Remove from user socket map
+        if (userSocketMap[userId] === socket.id) {
+          delete userSocketMap[userId];
+          console.log(`[Socket] Removed from userSocketMap: ${userId}`);
+        }
+
+        // Update user offline status
         await User.findByIdAndUpdate(socket.user._id, {
           isOnline: false,
           lastSeen: new Date()
         });
+
+        console.log(`[Socket] Cleanup complete for ${username}`);
       } catch (error) {
-        console.error('Error updating user status:', error);
+        console.error('[Socket] Error during disconnect:', error);
       }
     });
 
     socket.on('error', (error) => {
-      console.error(`Socket error for user ${socket.user?.username}:`, error);
+      console.error(`[Socket] Error for ${username}:`, error);
     });
   });
 
   return io;
 };
 
+// ===========================================
+// HELPER FUNCTIONS
+// ===========================================
+
 export const sendToUser = (io, userId, event, data) => {
-  io.to(`user:${userId}`).emit(event, data);
+  const socketId = userSocketMap[userId.toString()];
+  if (socketId) {
+    io.to(socketId).emit(event, data);
+    return true;
+  }
+  console.warn(`[Socket] sendToUser failed: User ${userId} not found`);
+  return false;
 };
 
 export const sendToMatch = (io, matchId, event, data) => {
   io.to(`match:${matchId}`).emit(event, data);
 };
 
-/*
-GIẢI THÍCH FILE
-=====================
+export const getUserSocketId = (userId) => {
+  return userSocketMap[userId.toString()];
+};
 
-Mục đích:
-File này dùng để khởi tạo và quản lý Socket.io cho ứng dụng dating app.
-Xử lý các kết nối realtime giữa người dùng bao gồm: chat, typing indicator,
-đánh dấu đã đọc, và cuộc gọi video/voice.
+export const isUserOnline = (userId) => {
+  return userSocketMap.hasOwnProperty(userId.toString());
+};
 
-Các function chính:
-- initializeSocket(io): Khởi tạo socket với middleware xác thực JWT
-- authenticateSocket: Middleware xác thực người dùng qua JWT token
-- sendToUser(): Hỗ trợ gửi message đến user cụ thể (dùng trong controller)
-- sendToMatch(): Hỗ trợ gửi message đến room match (dùng trong controller)
 
-Các socket events:
-- connection: Khi user kết nối
-- disconnect: Khi user ngắt kết nối
-- join_room: User tham gia phòng chat
-- leave_room: User rời phòng chat
-- send_message: Gửi tin nhắn
-- typing/stop_typing: Typing indicator
-- message_read: Đánh dấu đã đọc
-- call_user/accept_call/reject_call/end_call: Cuộc gọi
-
-Luồng hoạt động:
-Client (Socket) → Xác thực JWT → Lưu user vào socket → Xử lý events
-
-Ghi chú:
-File này được sử dụng bởi src/index.js để khởi tạo socket server.
-Các controller có thể import sendToUser/sendToMatch để gửi notification.
-*/
+export { initializeRedis, createRedisAdapterClients, getRedisClient, isRedisAvailable } from './redis.js';

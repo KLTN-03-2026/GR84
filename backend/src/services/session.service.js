@@ -83,13 +83,23 @@ export const getSessions = async ({
 /**
  * Lấy thống kê sessions
  * Dùng cho header cards: Tổng trực tuyến, Số rủi ro cao
+ * Chỉ đếm session của USER còn tồn tại trong DB
  */
 export const getSessionStats = async () => {
-  const [totalActive, totalSuspicious, totalHighRisk] = await Promise.all([
-    UserSession.countDocuments({ status: 'active' }),
+  // Dùng aggregate: join với users để bỏ qua orphaned sessions
+  const [activeResult, totalSuspicious, totalHighRisk] = await Promise.all([
+    UserSession.aggregate([
+      { $match: { status: 'active' } },
+      { $lookup: { from: 'users', localField: 'userId', foreignField: '_id', as: 'user' } },
+      { $match: { user: { $ne: [] } } },  // Chỉ giữ session có user tồn tại
+      { $group: { _id: '$userId' } },      // Distinct userId
+      { $count: 'total' }
+    ]),
     UserSession.countDocuments({ status: 'active', riskLevel: 'suspicious' }),
     UserSession.countDocuments({ status: 'active', riskLevel: 'high_risk' })
   ]);
+
+  const totalActive = activeResult[0]?.total ?? 0;
 
   return {
     totalActive,

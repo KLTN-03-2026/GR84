@@ -54,11 +54,19 @@ const aiService = {
                 lng: parseFloat(lng) || 108.206230,
                 swiped_ids: swiped_ids,
                 limit: 100
+            }, {
+                timeout: 10000 // 10s timeout
             });
             return response.data;
         } catch (error) {
-            // Tôi bọc JSON.stringify ở đây để nếu có lỗi nó in ra rõ ràng mảng array
-            console.error("LỖI TỪ AI SERVER (Python):", JSON.stringify(error.response?.data || error.message));
+            // Nếu AI Server không chạy (ECONNREFUSED / timeout) → trả về rỗng thay vì 500
+            const isNetworkError = !error.response || error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT';
+            if (isNetworkError) {
+                console.warn('[AI Service] AI Server offline hoặc timeout — fallback empty list');
+                return { data: [] };
+            }
+            // Các lỗi khác (4xx từ Python) vẫn log rõ
+            console.error('LỖI TỪ AI SERVER (Python):', JSON.stringify(error.response?.data || error.message));
             throw error;
         }
     },

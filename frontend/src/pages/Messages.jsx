@@ -14,7 +14,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useSocket } from '../context/SocketContext';
-import { messageService } from '../services/api';
+import { messageService, matchService } from '../services/api';
 import Navbar from '../components/Navbar';
 import SidebarMenu from '../components/SidebarMenu';
 
@@ -67,6 +67,8 @@ const Messages = () => {
   const [pendingImageFile, setPendingImageFile] = useState(null);
   const [pendingImagePreview, setPendingImagePreview] = useState('');
   const [pendingImageName, setPendingImageName] = useState('');
+  const [showUnmatchConfirm, setShowUnmatchConfirm] = useState(false);
+  const [unmatching, setUnmatching] = useState(false);
 
   // Refs
   const messagesContainerRef = useRef(null);
@@ -500,6 +502,26 @@ const Messages = () => {
   };
 
   // ============================================
+  // UNMATCH HANDLER
+  // ============================================
+  const handleUnmatch = useCallback(async () => {
+    if (!activeConversation?.matchId || unmatching) return;
+    setUnmatching(true);
+    try {
+      await matchService.unmatch(activeConversation.matchId);
+      // Remove conversation from list and close chat
+      setConversations(prev => prev.filter(c => c.matchId !== activeConversation.matchId));
+      setSelectedConversationId(null);
+      setMessages([]);
+    } catch (err) {
+      setError('Không thể hủy tương hợp. Vui lòng thử lại.');
+    } finally {
+      setUnmatching(false);
+      setShowUnmatchConfirm(false);
+    }
+  }, [activeConversation, unmatching]);
+
+  // ============================================
   // RENDER
   // ============================================
   return (
@@ -716,15 +738,18 @@ const Messages = () => {
                       </Link>
 
                       {showSafetyMenu && (
-                        <div className="absolute right-0 top-12 z-20 min-w-[150px] rounded-xl border border-gray-300 bg-white shadow-lg p-1">
+                        <div className="absolute right-0 top-12 z-20 min-w-[160px] rounded-xl border border-gray-200 bg-white shadow-xl p-1 animate-fade-in">
                           <button
                             type="button"
                             onClick={() => {
-                              console.log('Unmatch clicked', activeConversation?.matchId);
                               setShowSafetyMenu(false);
+                              setShowUnmatchConfirm(true);
                             }}
-                            className="w-full text-left px-3 py-2 rounded-lg text-sm text-red-500 hover:bg-red-50"
+                            className="w-full text-left px-3 py-2.5 rounded-lg text-sm text-red-500 hover:bg-red-50 flex items-center gap-2 font-medium transition-colors"
                           >
+                            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                            </svg>
                             Hủy tương hợp
                           </button>
                           <button
@@ -733,8 +758,11 @@ const Messages = () => {
                               console.log('Report User clicked', activeConversation?.userId?._id);
                               setShowSafetyMenu(false);
                             }}
-                            className="w-full text-left px-3 py-2 rounded-lg text-sm text-red-500 hover:bg-red-50"
+                            className="w-full text-left px-3 py-2.5 rounded-lg text-sm text-red-500 hover:bg-red-50 flex items-center gap-2 font-medium transition-colors"
                           >
+                            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
+                            </svg>
                             Báo cáo người dùng
                           </button>
                         </div>
@@ -1120,6 +1148,99 @@ const Messages = () => {
         <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] md:bottom-4 right-3 md:right-4 left-3 md:left-auto bg-red-500 text-white text-sm px-4 py-2 rounded-xl shadow-lg z-50 flex items-center justify-between gap-2">
           {error}
           <button onClick={() => setError('')} className="text-white/80 hover:text-white">✕</button>
+        </div>
+      )}
+
+      {/* ========== Unmatch Confirm Modal ========== */}
+      {showUnmatchConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.45)' }}
+          onClick={() => !unmatching && setShowUnmatchConfirm(false)}
+        >
+          <div
+            className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl overflow-hidden"
+            onClick={e => e.stopPropagation()}
+            style={{ animation: 'fadeScaleIn 0.2s ease' }}
+          >
+            {/* Red top bar */}
+            <div className="h-1.5 bg-gradient-to-r from-rose-500 to-pink-500" />
+
+            <div className="px-6 pt-6 pb-5">
+              {/* Icon */}
+              <div className="flex items-center justify-center mb-4">
+                <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center">
+                  <svg className="w-7 h-7 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                  </svg>
+                </div>
+              </div>
+
+              {/* Title */}
+              <h2 className="text-center text-lg font-bold text-gray-900 mb-1">Hủy tương hợp?</h2>
+
+              {/* Warning message */}
+              <p className="text-center text-sm text-gray-500 mb-5 leading-relaxed">
+                Bạn có chắc chắn? Thao tác này{' '}
+                <span className="font-semibold text-red-500">không thể hoàn tác</span>{' '}
+                và toàn bộ tin nhắn sẽ bị xóa vĩnh viễn.
+              </p>
+
+              {/* Partner info */}
+              {activeConversation && (
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100 mb-5">
+                  <div className="w-10 h-10 rounded-full overflow-hidden ring-2 ring-rose-100 shrink-0">
+                    {activeConversation.userId?.avatar ? (
+                      <img src={activeConversation.userId.avatar} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full bg-gradient-to-br from-pink-400 to-purple-500 flex items-center justify-center text-white font-bold text-sm">
+                        {(activeConversation.userId?.fullName || activeConversation.userId?.username || '?').charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm text-gray-800 truncate">
+                      {activeConversation.userId?.fullName || activeConversation.userId?.username || 'Unknown'}
+                    </p>
+                    <p className="text-xs text-gray-400">Sẽ bị xóa khỏi danh sách</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowUnmatchConfirm(false)}
+                  disabled={unmatching}
+                  className="flex-1 h-11 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="button"
+                  onClick={handleUnmatch}
+                  disabled={unmatching}
+                  className="flex-1 h-11 rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 text-white text-sm font-semibold hover:from-rose-600 hover:to-pink-600 transition-colors disabled:opacity-60 flex items-center justify-center gap-2 shadow-[0_4px_12px_rgba(244,63,94,0.3)]"
+                >
+                  {unmatching ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      Đang xử lý…
+                    </>
+                  ) : 'Đồng ý'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <style>{`
+            @keyframes fadeScaleIn {
+              from { opacity: 0; transform: scale(0.92); }
+              to   { opacity: 1; transform: scale(1); }
+            }
+          `}</style>
         </div>
       )}
 

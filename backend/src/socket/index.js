@@ -419,7 +419,7 @@ export const initializeSocket = (io) => {
      * Initiate a call to specific user
      */
     socket.on('call_user', (data) => {
-      const { targetUserId, signalData, callType, matchId, callId } = data;
+      const { targetUserId, signalData, callType, matchId } = data;
 
       if (!targetUserId || !signalData) {
         console.warn('[CALL] Invalid call data');
@@ -428,7 +428,7 @@ export const initializeSocket = (io) => {
 
       const targetSocketId = userSocketMap[targetUserId];
 
-      console.log(`[CALL] Initiate: ${username} (${userId}) → ${targetUserId} match:${matchId} callId:${callId}`);
+      console.log(`[CALL] Initiate: ${username} (${userId}) → ${targetUserId} match:${matchId}`);
 
       if (!targetSocketId) {
         socket.emit('call_error', { message: 'User is offline' });
@@ -443,8 +443,7 @@ export const initializeSocket = (io) => {
           avatar: socket.user.avatar
         },
         callType: callType || 'video',
-        matchId,
-        callId
+        matchId
       });
     });
 
@@ -452,7 +451,7 @@ export const initializeSocket = (io) => {
      * Accept incoming call
      */
     socket.on('accept_call', (data) => {
-      const { callerId, signalData, callId } = data;
+      const { callerId, signalData } = data;
 
       if (!callerId || !signalData) {
         console.warn('[CALL] Invalid accept data');
@@ -461,7 +460,7 @@ export const initializeSocket = (io) => {
 
       const callerSocketId = userSocketMap[callerId];
 
-      console.log(`[CALL] Accepted: ${username} → ${callerId} callId:${callId}`);
+      console.log(`[CALL] Accepted: ${username} → ${callerId}`);
 
       if (callerSocketId) {
         io.to(callerSocketId).emit('call_accepted', {
@@ -470,8 +469,7 @@ export const initializeSocket = (io) => {
             _id: socket.user._id,
             username: socket.user.username,
             avatar: socket.user.avatar
-          },
-          callId
+          }
         });
       }
     });
@@ -520,25 +518,6 @@ export const initializeSocket = (io) => {
       }
     });
 
-    /**
-     * Relay ICE Candidates
-     */
-    socket.on('ice_candidate', (data) => {
-      const { targetUserId, candidate, matchId } = data;
-
-      if (!targetUserId || !candidate) return;
-
-      const targetSocketId = userSocketMap[targetUserId];
-
-      if (targetSocketId) {
-        io.to(targetSocketId).emit('ice_candidate', {
-          candidate,
-          from: socket.user._id,
-          matchId
-        });
-      }
-    });
-
     // ===========================================
     // WebRTC SIGNALING (in-memory emit)
     // ===========================================
@@ -547,7 +526,7 @@ export const initializeSocket = (io) => {
      * WebRTC signal relay (offer/answer/candidate)
      */
     socket.on('webrtc_signal', (data) => {
-      const { targetUserId, signal, type, callId } = data;
+      const { targetUserId, signal, type } = data;
 
       if (!targetUserId || !signal) {
         console.warn('[WebRTC] Invalid signal data');
@@ -557,11 +536,9 @@ export const initializeSocket = (io) => {
       const targetSocketId = userSocketMap[targetUserId];
 
       if (targetSocketId) {
-        console.log(`[WebRTC] Relaying ${type} from ${userId} to ${targetUserId} callId:${callId}`);
         io.to(targetSocketId).emit('webrtc_signal', {
           signal,
           type,
-          callId,
           from: {
             _id: socket.user._id,
             username: socket.user.username

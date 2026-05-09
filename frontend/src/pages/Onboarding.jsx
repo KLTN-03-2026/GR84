@@ -416,8 +416,7 @@ const Onboarding = () => {
       }
 
       // 2. Gọi API Node.js (Node.js sẽ chịu trách nhiệm gọi tiếp sang AI Milvus)
-      const result = await userService.updateProfile(onboardingData);
-
+      const res = await aiMatchService.syncProfileToAI(finalData);
       if (result.success) {
         setUser(result.user);
         navigate('/discover');
@@ -481,31 +480,51 @@ const Onboarding = () => {
     try {
       const finalData = new FormData();
 
-      //  Cấu hình nén ảnh
+      // Cấu hình nén ảnh
       const compressionOptions = {
         maxSizeMB: 1.0,
         maxWidthOrHeight: 1440,
         useWebWorker: true,
       };
 
-      // Đóng gói thông tin hồ sơ 
+      // Đóng gói thông tin hồ sơ
       Object.keys(formData).forEach(key => {
         if (key === 'interests') {
           finalData.append('interests', JSON.stringify(formData[key]));
-        } else if (key !== 'avatar' && formData[key] !== null && formData[key] !== '') {
+        } else if (key !== 'avatar' && key !== 'dateOfBirth' && formData[key] !== null && formData[key] !== '') {
           finalData.append(key, formData[key]);
         }
       });
 
+      // Tính tuổi từ ngày sinh
+      if (formData.dateOfBirth) {
+        const dateRegex = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+        const match = formData.dateOfBirth.match(dateRegex);
+        if (match) {
+          const day = parseInt(match[1], 10);
+          const month = parseInt(match[2], 10);
+          const year = parseInt(match[3], 10);
+          const birthDate = new Date(year, month - 1, day);
+          const today = new Date();
+          let calculatedAge = today.getFullYear() - birthDate.getFullYear();
+          const monthDiff = today.getMonth() - birthDate.getMonth();
+          if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+            calculatedAge--;
+          }
+          finalData.append('age', calculatedAge);
+          finalData.append('dateOfBirth', formData.dateOfBirth);
+        }
+      }
+
+      // Đính kèm ảnh đại diện
       if (formData.avatar) {
         const compressedFile = await imageCompression(formData.avatar, compressionOptions);
         finalData.append('avatar', compressedFile, formData.avatar.name || "avatar.jpg");
       }
 
-
+      // Đính kèm ảnh selfie sinh trắc học
       if (biometricImage) {
         const compressedBio = await imageCompression(biometricImage, compressionOptions);
-
         finalData.append('biometricPhoto', compressedBio, "biometric.jpg");
       }
 
@@ -514,9 +533,12 @@ const Onboarding = () => {
         finalData.append('latitude', mapPosition.lat);
         finalData.append('longitude', mapPosition.lng);
       }
-      const res = await userService.updateProfileAndVerify(finalData);
+
+      // GỌI API ĐỒNG BỘ AI
+      const res = await aiMatchService.syncProfileToAI(finalData);
       const result = res.data || res;
-      if (result.verified) {
+
+      if (result.success || result.message === "Hồ sơ đang được hệ thống AI xử lý nền!") {
         if (result.user) setUser(result.user);
         navigate('/discover', { state: { justVerified: true } });
       } else {
@@ -525,7 +547,7 @@ const Onboarding = () => {
 
     } catch (err) {
       console.error("Lỗi hoàn tất hồ sơ:", err);
-      setError(err.response?.data?.message || 'Có lỗi xảy ra trong quá trình lưu hồ sơ.');
+      setError(err.response?.data?.message || err.response?.data?.error || 'Có lỗi xảy ra trong quá trình lưu hồ sơ.');
     } finally {
       setIsLoading(false);
     }

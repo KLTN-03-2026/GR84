@@ -5,7 +5,6 @@ import { adminAuthService, adminUserService } from '../services/api';
 const QUICK_LINKS = [
   { title: 'Bảng điều khiển', path: '/admin/dashboard', icon: 'Dashboard', keywords: ['dashboard', 'thống kê', 'tổng quan', 'home'] },
   { title: 'Quản lý người dùng', path: '/admin/users', icon: 'Users', keywords: ['user', 'người dùng', 'tài khoản', 'khách hàng'] },
-  { title: 'Kiểm duyệt AI', path: '/admin/ai', icon: 'ShieldCheck', keywords: ['ai', 'kiểm duyệt', 'report', 'báo cáo', 'vi phạm'] },
   { title: 'Quản lý danh mục', path: '/admin/categories', icon: 'FileText', keywords: ['category', 'danh mục', 'sở thích', 'nghề nghiệp', 'tag'] },
   { title: 'Phiên làm việc', path: '/admin/sessions', icon: 'Window', keywords: ['session', 'phiên', 'đăng nhập', 'online'] },
   { title: 'Nhật ký hệ thống', path: '/admin/trace', icon: 'Activity', keywords: ['log', 'nhật ký', 'trace', 'hệ thống', 'lịch sử'] },
@@ -161,10 +160,6 @@ export default function AdminLayout({ children, title = 'Bảng điều khiển'
               <Icons.Users className={getIconClass('/admin/users')} />
               Quản lý người dùng
             </Link>
-            <Link to="/admin/ai" className={getMenuClass('/admin/ai')}>
-              <Icons.ShieldCheck className={getIconClass('/admin/ai')} />
-              Kiểm duyệt AI
-            </Link>
             <Link to="/admin/categories" className={getMenuClass('/admin/categories')}>
               <Icons.FileText className={getIconClass('/admin/categories')} />
               Quản lý danh mục
@@ -181,12 +176,6 @@ export default function AdminLayout({ children, title = 'Bảng điều khiển'
           </nav>
         </div>
 
-        <div className="px-6 mt-8">
-          <button className="flex items-center justify-center gap-2 w-full py-3 bg-[#475569] hover:bg-[#334155] text-white rounded-full font-medium transition-colors shadow-sm">
-            <Icons.Shield className="w-4 h-4" />
-            Chế độ An toàn
-          </button>
-        </div>
       </aside>
 
       {/* Main Content */}

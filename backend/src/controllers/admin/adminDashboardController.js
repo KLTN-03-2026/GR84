@@ -1,5 +1,6 @@
 import User from '../../models/User.js';
 import Match from '../../models/Match.js';
+import UserSession from '../../models/UserSession.js';
 import mongoose from 'mongoose';
 
 /**
@@ -10,7 +11,15 @@ import mongoose from 'mongoose';
 export const getDashboardStats = async (req, res) => {
   try {
     const totalUsers = await User.countDocuments();
-    const onlineUsers = await User.countDocuments({ isOnline: true });
+    // Đếm user DUY NHẤT đang online, chỉ tính session của user còn tồn tại
+    const onlineResult = await UserSession.aggregate([
+      { $match: { status: 'active' } },
+      { $lookup: { from: 'users', localField: 'userId', foreignField: '_id', as: 'user' } },
+      { $match: { user: { $ne: [] } } },
+      { $group: { _id: '$userId' } },
+      { $count: 'total' }
+    ]);
+    const onlineUsers = onlineResult[0]?.total ?? 0;
     const totalMatches = await Match.countDocuments({ isActive: true });
 
     res.status(200).json({

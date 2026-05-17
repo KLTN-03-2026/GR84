@@ -81,13 +81,4 @@ router.get('/', authenticate, getUsers);
 router.get('/recommendations', authenticate, getRecommendedUsers);
 router.get('/matches', authenticate, getUserMatches);
 router.get('/:id', authenticate, getUserById);
-router.post(
-  '/profile/update-verify',
-  authenticate,
-  upload.fields([
-    { name: 'avatar', maxCount: 1 },
-    { name: 'biometricPhoto', maxCount: 1 }
-  ]),
-  updateMyProfile // Hàm này sẽ xử lý lưu DB và gọi AI sync/verify
-);
 export default router;

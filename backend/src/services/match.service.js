@@ -13,6 +13,10 @@ export const likeUser = async (swiperId, targetUserId) => {
 
   const targetUser = await User.findById(targetUserId);
   if (!targetUser) return { error: 'User not found', status: 404 };
+  
+  if (targetUser.status !== 'active') {
+    return { error: 'Tài khoản này chưa hoàn tất đăng ký hoặc đã bị khóa', status: 403 };
+  }
 
   await Swipe.findOneAndUpdate(
     { swiperId, swipedId: targetUserId },
@@ -230,6 +234,9 @@ export const unmatchUser = async (userId, matchId) => {
   }
 
   match.isActive = false;
+  match.status = 'unmatched';
+  match.unmatchedBy = userId;
+  match.unmatchedAt = new Date();
   await match.save();
 
   return { message: 'Unmatched successfully' };

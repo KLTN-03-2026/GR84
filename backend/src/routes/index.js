@@ -7,6 +7,7 @@ import userProfileRoutes from './userProfile.routes.js';
 import discoveryRoutes from './discovery.routes.js';
 import interestRoutes from './interest.routes.js';
 import safetyRoutes from './safety.routes.js';
+import notificationRoutes from './notificationRoutes.js';
 
 export {
   authRoutes,
@@ -17,5 +18,6 @@ export {
   userProfileRoutes,
   discoveryRoutes,
   interestRoutes,
-  safetyRoutes
+  safetyRoutes,
+  notificationRoutes
 };

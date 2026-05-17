@@ -1,18 +1,16 @@
-/**
- * Super Like User Controller
- */
 import matchService from '../../services/match.service.js';
 import { io } from '../../index.js';
 import User from '../../models/User.js';
+import { resolveUserId } from '../../utils/idResolver.js';
+import Notification from '../../models/Notification.js';
 
 export const superLikeUser = async (req, res, next) => {
   try {
     const currentUserId = req.user._id;
-    const targetUserIdRaw = req.body.userId;
-    const targetUserId = targetUserIdRaw ? Buffer.from(targetUserIdRaw, 'base64').toString('ascii') : null;
+    const targetUserId = resolveUserId(req.body.userId);
 
     if (!targetUserId) {
-      return res.status(400).json({ success: false, message: 'Invalid user ID' });
+      return res.status(400).json({ success: false, message: 'Invalid or malformed user ID' });
     }
 
     console.log('[SuperLike] User:', currentUserId, 'super liking:', targetUserId);
@@ -38,6 +36,19 @@ export const superLikeUser = async (req, res, next) => {
           createdAt: new Date()
         });
       }
+
+      // Create DB notification
+      try {
+        await Notification.create({
+          recipient: targetUserId,
+          type: 'like',
+          from: currentUserId,
+          content: 'đã Super Like bạn ⭐',
+          read: false
+        });
+      } catch (notifErr) {
+        console.error('[Notification Error] Failed to save superlike notification:', notifErr.message);
+      }
     }
 
     // If it's a Super Match, emit match notification
@@ -52,6 +63,19 @@ export const superLikeUser = async (req, res, next) => {
           isSuperMatch: true,
           message: `${currentUser.username || currentUser.fullName} đã Super Match với bạn! 🌟`
         });
+      }
+
+      // Create DB notification
+      try {
+        await Notification.create({
+          recipient: targetUserId,
+          type: 'match',
+          matchedBy: currentUserId,
+          matchId: result.match._id,
+          read: false
+        });
+      } catch (notifErr) {
+        console.error('[Notification Error] Failed to save supermatch notification:', notifErr.message);
       }
     }
 

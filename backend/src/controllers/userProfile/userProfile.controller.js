@@ -19,18 +19,71 @@ import fs from 'fs/promises';
  * Get current user's profile
  * Requires authentication (JWT)
  */
+const parseDate = (dateStr) => {
+  if (!dateStr) return null;
+  // Try dd/mm/yyyy
+  const dmyRegex = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+  const match = dateStr.match(dmyRegex);
+  if (match) {
+    const day = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10);
+    const year = parseInt(match[3], 10);
+    const date = new Date(year, month - 1, day);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  }
+  // Try ISO or standard
+  const parsed = new Date(dateStr);
+  if (!isNaN(parsed.getTime())) {
+    return parsed;
+  }
+  return null;
+};
+
 export const getMyProfile = async (req, res, next) => {
   try {
     const userId = req.user._id;
 
-    const profile = await getProfileByUserId(userId.toString());
+    const user = await User.findById(userId);
 
-    if (!profile) {
-      return sendSuccess(res, {
-        profile: null,
-        message: 'Profile not found. Please create your profile.'
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
       });
     }
+
+    const profile = {
+      id: user._id.toString(),
+      _id: user._id.toString(),
+      userId: user._id.toString(),
+      fullName: user.fullName || user.username || '',
+      email: user.email || '',
+      gender: user.gender || '',
+      dateOfBirth: user.dateOfBirth ? new Date(user.dateOfBirth).toISOString().split('T')[0] : null,
+      age: user.age || null,
+      bio: user.bio || '',
+      avatar: user.avatar || '',
+      photos: user.photos || [],
+      locationText: user.locationText || '',
+      occupation: user.occupation || '',
+      education: user.education || '',
+      height: user.height || null,
+      drinking: user.drinking || '',
+      smoking: user.smoking || '',
+      lookingFor: user.lookingFor || '',
+      interests: user.interests || [],
+      preferences: {
+        maxDistance: user.preferences?.maxDistance || 25,
+        minAge: user.preferences?.minAge || 18,
+        maxAge: user.preferences?.maxAge || 50,
+        gender: user.preferences?.gender || 'both'
+      },
+      verificationLevel: user.verificationLevel || 1,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    };
 
     return sendSuccess(res, {
       profile,
@@ -40,6 +93,7 @@ export const getMyProfile = async (req, res, next) => {
     next(error);
   }
 };
+
 
 /**
  * PUT /api/profile
@@ -60,7 +114,7 @@ export const getMyProfile = async (req, res, next) => {
  * }
  */
 const getImageBuffer = async (file) => {
-  if (file.path && file.path.startsWith('http')) { 
+  if (file.path && file.path.startsWith('http')) {
     // Nếu ảnh đang ở trên Cloudinary
     const response = await axios.get(file.path, { responseType: 'arraybuffer' });
     return Buffer.from(response.data, 'binary');
@@ -68,19 +122,18 @@ const getImageBuffer = async (file) => {
     // Nếu ảnh lưu trên disk local
     return await fs.readFile(file.path);
   }
-  return file.buffer; // Nếu ảnh lưu trong RAM (memoryStorage)
+  return file.buffer;
 };
 export const updateMyProfile = async (req, res, next) => {
   try {
     const userId = req.user._id;
     const files = req.files;
     const aiUserId = parseInt(userId.toString().slice(-12), 16);
-
-    let isVerified = false; // 🔥 THÊM BIẾN NÀY
-
+    const currentUserProfile = await User.findById(userId);
+    let verificationLevel = currentUserProfile?.verificationLevel || 1;
     const allowedFields = [
       'fullName', 'bio', 'gender', 'age', 'interests',
-      'locationText', 'occupation', 'education',
+      'locationText', 'occupation', 'education', 'height',
       'drinking', 'smoking', 'lookingFor'
     ];
 
@@ -111,15 +164,31 @@ export const updateMyProfile = async (req, res, next) => {
     }
 
     if (req.body.dateOfBirth) {
-      updateData.dateOfBirth = req.body.dateOfBirth;
+      const birthDate = parseDate(req.body.dateOfBirth);
+      if (!birthDate) {
+        return res.status(400).json({
+          success: false,
+          message: 'Ngày sinh không đúng định dạng. Vui lòng sử dụng dd/mm/yyyy hoặc yyyy-mm-dd.'
+        });
+      }
+
+      updateData.dateOfBirth = birthDate;
       // Calculate age
-      const birthDate = new Date(req.body.dateOfBirth);
       const today = new Date();
       let age = today.getFullYear() - birthDate.getFullYear();
       const m = today.getMonth() - birthDate.getMonth();
       if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
         age--;
       }
+
+      // Validate age: must be between 18 and 100
+      if (!Number.isInteger(age) || age < 18 || age > 100) {
+        return res.status(400).json({
+          success: false,
+          message: 'Tuổi của bạn phải từ 18 đến 100 tuổi để sử dụng ứng dụng.'
+        });
+      }
+
       updateData.age = age;
     }
 
@@ -149,57 +218,33 @@ export const updateMyProfile = async (req, res, next) => {
     if (files?.avatar) {
       const avatarFile = files.avatar[0];
       updateData.avatar = avatarFile.path || `/uploads/${avatarFile.filename}`;
-      console.log('[updateMyProfile] New avatar path:', updateData.avatar);
-    }
-
-    // ================= REGISTER AVATAR =================
-    if (files?.avatar) {
-      try {
-        const avatarBuffer = await getImageBuffer(files.avatar[0]);
-
-        const syncData = new FormData();
-        syncData.append('user_id', aiUserId);
-
-        const genderCode = req.body.gender === 'male' ? 1 : (req.body.gender === 'female' ? 2 : 0);
-        syncData.append('gender', genderCode);
-
-        const userAge = req.body.age ? parseInt(req.body.age) : 18;
-        syncData.append('age', userAge);
-
-        const superBio = req.body.bio ? req.body.bio.trim() : "Xin chào, rất vui được làm quen!";
-        syncData.append('super_bio', superBio);
-
-        if (updateData.location?.coordinates) {
-          syncData.append('lng', updateData.location.coordinates[0]);
-          syncData.append('lat', updateData.location.coordinates[1]);
-        } else {
-          syncData.append('lng', 108.20623);
-          syncData.append('lat', 16.047079);
-        }
-
-        syncData.append('file', avatarBuffer, {
-          filename: 'avatar.jpg',
-          contentType: 'image/jpeg',
-          knownLength: avatarBuffer.length
-        });
-
-        await axios.post(`${process.env.AI_URL}/register`, syncData, {
-          headers: syncData.getHeaders(),
-          timeout: 45000
-        });
-
-        console.log("✅ Đã lưu mẫu khuôn mặt vào AI:", aiUserId);
-
-      } catch (err) {
-        console.error("❌ Lỗi Register:", err.response?.data || err.message);
-        return res.status(400).json({
-          success: false,
-          message: err.response?.data?.detail || err.response?.data?.message || err.response?.data || "Ảnh không hợp lệ hoặc chứa nội dung nhạy cảm."
-        });
+      console.log('[ProfileUpdate] req.file (avatar):', avatarFile);
+      console.log('[ProfileUpdate] uploaded avatar url:', updateData.avatar);
+      
+      // Auto-add avatar to photos gallery if gallery is empty or doesn't exist
+      const currentPhotos = updateData.photos || currentUserProfile.photos || [];
+      if (currentPhotos.length === 0) {
+        updateData.photos = [updateData.avatar];
+        console.log('[ProfileUpdate] Added avatar to empty photos gallery');
       }
     }
 
-    // LƯU DB SAU KHI ĐÃ VƯỢT QUA AI
+    // Handle multiple photos if any (some versions of frontend might send photos as files)
+    if (files?.photos) {
+      const photoUrls = files.photos.map(f => f.path || `/uploads/${f.filename}`);
+      console.log('[ProfileUpdate] req.files (photos):', files.photos);
+      updateData.photos = [...(updateData.photos || []), ...photoUrls];
+    }
+
+    // ================= LƯU DB TRƯỚC TIÊN =================
+    // Đảm bảo thông tin user luôn được lưu dù AI Server có lỗi
+    console.log('[ProfileUpdate] verification mode:', req.body.verificationMode || 'false');
+    console.log('[ProfileUpdate] Updating user in DB:', userId, {
+      ...updateData,
+      avatar: updateData.avatar ? 'EXISTS' : 'NONE',
+      photosCount: updateData.photos?.length || 0
+    });
+
     let profile = await User.findByIdAndUpdate(
       userId,
       { $set: updateData },
@@ -211,54 +256,76 @@ export const updateMyProfile = async (req, res, next) => {
       await profile.save();
     }
 
-    // ================= VERIFY BIOMETRIC =================
-    if (files?.biometricPhoto) {
+    // ================= REGISTER AVATAR VỚI AI =================
+    if (files?.avatar) {
       try {
-        const bioBuffer = await getImageBuffer(files.biometricPhoto[0]);
-
-        const verifyData = new FormData();
-        verifyData.append('user_id', aiUserId);
-        verifyData.append('file', bioBuffer, {
-          filename: 'verify.jpg',
-          contentType: 'image/jpeg'
-        });
-
-        const aiRes = await axios.post(
-          `${process.env.AI_URL}/verify-biometric`,
-          verifyData,
-          {
-            headers: verifyData.getHeaders(),
-            timeout: 45000
-          }
-        );
-
-        console.log("AI RESPONSE:", aiRes.data); // 🔥 debug
-
-        if (aiRes.data?.verified === true) {
-          profile.isVerifiedProfile = true;
-          await profile.save();
-          isVerified = true; // 🔥 QUAN TRỌNG
-          console.log("✅ Face verified");
-        } else {
-          isVerified = false;
-          console.log("❌ Face verify failed:", aiRes.data);
-        }
-
+        const avatarBuffer = await getImageBuffer(files.avatar[0]);
+        // Register avatar in background - don't let it block the response if possible
+        aiMatchService.syncProfileToAI(profile, avatarBuffer, 'avatar.jpg')
+          .then(() => console.log("✅ [ProfileUpdate] Đã lưu mẫu khuôn mặt vào AI:", userId))
+          .catch(err => console.error("❌ [ProfileUpdate] Lỗi Register AI:", err.message));
       } catch (err) {
-        isVerified = false;
-        console.error("❌ Verify lỗi:", err.response?.data || err.message);
+        console.error("❌ [ProfileUpdate] Lỗi chuẩn bị buffer cho AI:", err.message);
       }
     }
+
+    // ================= VERIFY BIOMETRIC (ONLY IF REQUESTED) =================
+    if (files?.biometricPhoto) {
+      try {
+        console.log('[ProfileUpdate] Processing biometric verification...');
+        const bioBuffer = await getImageBuffer(files.biometricPhoto[0]);
+        const aiRes = await aiMatchService.verifyBiometric(userId, bioBuffer, 'verify.jpg');
+
+        console.log("[ProfileUpdate] AI VERIFY RESPONSE:", aiRes);
+
+        if (aiRes?.verified === true) {
+          profile.isVerifiedProfile = true;
+          profile.verificationLevel = 2;
+          await profile.save();
+          verificationLevel = 2;
+          console.log("✅ [ProfileUpdate] Face verified");
+        } else {
+          verificationLevel = 1;
+          console.log("❌ [ProfileUpdate] Face verify failed:", aiRes?.message);
+        }
+      } catch (err) {
+        verificationLevel = 1;
+        console.error("❌ [ProfileUpdate] Verify lỗi:", err.response?.data || err.message);
+      }
+    }
+
+    // ================= ONBOARDING COMPLETION CHECK =================
+    // Mandatory: fullName, dateOfBirth, locationText, interests (at least 3)
+    const hasName = !!(profile.fullName && profile.fullName.trim());
+    const hasDob = !!profile.dateOfBirth;
+    const hasLocation = !!(profile.locationText && profile.locationText.trim());
+    const hasInterests = !!(profile.interests && profile.interests.length >= 3);
+
+    const isMandatoryFieldsPresent = hasName && hasDob && hasLocation && hasInterests;
+
+    if (isMandatoryFieldsPresent) {
+      profile.onboardingCompleted = true;
+      profile.status = 'active';
+      await profile.save();
+      console.log(`[Onboarding] User ${userId} completed onboarding successfully.`);
+    } else {
+      console.log(`[Onboarding] User ${userId} profile incomplete:`, { hasName, hasDob, hasLocation, hasInterests });
+    }
+
     // ================= RESPONSE =================
     return res.status(200).json({
       success: true,
-      verified: isVerified, // 🔥 THÊM DÒNG NÀY
-      message: isVerified ? "Xác thực thành công" : "Xác thực thất bại",
+      verified: verificationLevel >= 2,
+      isVerified: verificationLevel >= 2,
+      verificationLevel: verificationLevel,
+      onboardingCompleted: profile.onboardingCompleted,
+      status: profile.status,
+      message: profile.onboardingCompleted ? "Hoàn tất đăng ký thành công" : "Thông tin đã được lưu",
       user: profile
     });
 
   } catch (error) {
-    console.error("🔥 Lỗi logic:", error.message);
+    console.error("🔥 Lỗi logic updateMyProfile:", error.message);
     next(error);
   }
 };
@@ -293,8 +360,59 @@ async function geocode(address) {
 export const getMyProfileStats = async (req, res, next) => {
   try {
     const userId = req.user._id;
+    const user = await User.findById(userId);
 
-    const stats = await getProfileStats(userId.toString());
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    const fieldsCompleted = [];
+    let completionPercentage = 0;
+
+    if (user.fullName && user.fullName.trim() !== '') {
+      fieldsCompleted.push('fullName');
+      completionPercentage += 20;
+    }
+
+    if (user.gender && user.gender !== '') {
+      fieldsCompleted.push('gender');
+      completionPercentage += 10;
+    }
+
+    if (user.dateOfBirth) {
+      fieldsCompleted.push('dateOfBirth');
+      completionPercentage += 15;
+    }
+
+    if (user.bio && user.bio.trim() !== '') {
+      fieldsCompleted.push('bio');
+      completionPercentage += 15;
+    }
+
+    if (user.avatar && user.avatar.trim() !== '') {
+      fieldsCompleted.push('avatar');
+      completionPercentage += 20;
+    }
+
+    if (user.interests && user.interests.length > 0) {
+      fieldsCompleted.push('interests');
+      completionPercentage += 10;
+    }
+
+    if (user.photos && user.photos.length > 0) {
+      fieldsCompleted.push('photos');
+      completionPercentage += 10;
+    }
+
+    const stats = {
+      hasProfile: true,
+      completionPercentage,
+      fieldsCompleted,
+      totalFields: 7
+    };
 
     return sendSuccess(res, {
       stats,
@@ -305,8 +423,52 @@ export const getMyProfileStats = async (req, res, next) => {
   }
 };
 
+export const uploadToGallery = async (req, res, next) => {
+  try {
+    const userId = req.user._id;
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'Không tìm thấy file tải lên.'
+      });
+    }
+
+    const imageUrl = req.file.path || `/uploads/${req.file.filename}`;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy tài khoản người dùng.'
+      });
+    }
+
+    user.photos = user.photos || [];
+    if (user.photos.length >= 5) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bạn chỉ có thể thêm tối đa 5 bức ảnh vào thư viện.'
+      });
+    }
+
+    user.photos.push(imageUrl);
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Đã thêm ảnh vào thư viện thành công!',
+      photos: user.photos,
+      url: imageUrl
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export default {
   getMyProfile,
   updateMyProfile,
-  getMyProfileStats
+  getMyProfileStats,
+  uploadToGallery
 };
+

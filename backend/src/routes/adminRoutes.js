@@ -3,6 +3,7 @@ import { adminLogin, adminLogout, adminForgotPassword, adminVerifyOTP, adminRese
 import { getUsers, toggleUserStatus, updateUserRole } from '../controllers/admin/adminUserController.js';
 import { getCurrentUser } from '../controllers/auth/me.controller.js';
 import { authenticate, authorizeAdmin } from '../middleware/auth.js';
+import { getReports, handleReportAction } from '../controllers/admin/adminReportController.js';
 
 const router = express.Router();
 
@@ -92,5 +93,9 @@ import {
 router.get('/logs', authenticate, authorizeAdmin, getAdminLogs);
 router.get('/logs/export/excel', authenticate, authorizeAdmin, exportExcel);
 router.get('/logs/export/pdf', authenticate, authorizeAdmin, exportPDF);
+
+// --- Route Báo cáo người dùng (PB25) ---
+router.get('/reports', authenticate, authorizeAdmin, getReports);
+router.post('/reports/:id/action', authenticate, authorizeAdmin, handleReportAction);
 
 export default router;

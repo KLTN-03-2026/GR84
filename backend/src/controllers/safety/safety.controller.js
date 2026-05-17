@@ -15,9 +15,9 @@ import User from '../../models/User.js';
 export const createReport = async (req, res, next) => {
   try {
     const reporterId = req.user._id;
-    const { targetId, reason, description, evidence } = req.body;
+    const { targetId, reason, description, evidence, conversationId } = req.body;
 
-    console.log('[Safety] Create report:', { reporterId, targetId, reason });
+    console.log('[Safety] Create report:', { reporterId, targetId, reason, conversationId });
 
     // Validate input
     if (!targetId) {
@@ -66,7 +66,8 @@ export const createReport = async (req, res, next) => {
       targetId,
       reason,
       description: description || '',
-      evidence: evidence || []
+      evidence: evidence || [],
+      conversationId: conversationId || null
     });
 
     await report.save();

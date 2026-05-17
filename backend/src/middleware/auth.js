@@ -4,6 +4,7 @@ import UserSession from '../models/UserSession.js';
 import config from '../config/index.js';
 
 export const authenticate = async (req, res, next) => {
+  console.log(`[AUTH CHECK] ${req.method} ${req.originalUrl}`);
   try {
     let token;
 
@@ -12,6 +13,7 @@ export const authenticate = async (req, res, next) => {
     }
 
     if (!token) {
+      console.log(`[Auth Middleware] Unauthorized access attempt to: ${req.originalUrl}`);
       return res.status(401).json({
         success: false,
         message: 'Not authorized to access this route'
@@ -62,7 +64,7 @@ export const authenticate = async (req, res, next) => {
         }
 
         // Cập nhật lastActiveAt
-        UserSession.touchSession(token).catch(() => {});
+        UserSession.touchSession(token).catch(() => { });
       }
 
       req.user = await User.findById(decoded.id);

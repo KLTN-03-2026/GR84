@@ -1,4 +1,5 @@
 import User from '../../models/User.js';
+import UserSession from '../../models/UserSession.js';
 import AdminLog from '../../models/AdminLog.js';
 
 /**
@@ -17,6 +18,16 @@ export const getUsers = async (req, res) => {
     // Build query: Hỗ trợ tìm kiếm theo email, username, fullName
     const query = {};
 
+    // RBAC Visibility Logic: Chỉ xem những role được phép
+    const getVisibleRoles = (requesterRole) => {
+      if (requesterRole === 'super_admin') return ['user', 'premium', 'admin'];
+      if (requesterRole === 'admin') return ['user', 'premium'];
+      return [];
+    };
+
+    const visibleRoles = getVisibleRoles(req.user.role);
+    query.role = { $in: visibleRoles };
+
     // Tìm kiếm text
     if (search) {
       query.$or = [
@@ -27,7 +38,13 @@ export const getUsers = async (req, res) => {
     }
 
     // Các bộ lọc bổ sung
-    if (role) query.role = role;
+    if (role && visibleRoles.includes(role)) {
+      query.role = role;
+    } else if (role) {
+      // Nếu filter role không hợp lệ so với quyền, trả về rỗng hoặc bỏ qua
+      // Ở đây ta chọn ép buộc role filter phải nằm trong visibleRoles
+      query.role = { $in: [role].filter(r => visibleRoles.includes(r)) };
+    }
     if (gender) query.gender = gender;
     if (status) query.status = status;
 
@@ -114,6 +131,34 @@ export const toggleUserStatus = async (req, res) => {
 
     // Lưu lại User
     await user.save();
+
+    // NẾU KHÓA TÀI KHOẢN -> KILL ALL SESSIONS NGAY LẬP TỨC
+    if (user.isLocked) {
+      try {
+        console.log(`[Security] Account locked: Revoking all sessions for user ${user._id}`);
+        
+        // 1. Revoke trong DB
+        await UserSession.revokeAllUserSessions(user._id, adminId, 'Tài khoản đã bị khóa bởi quản trị viên');
+        
+        // 2. Cập nhật trạng thái offline
+        await User.findByIdAndUpdate(user._id, { isOnline: false });
+
+        // 3. Emit force_logout qua Socket.IO
+        const io = req.app.get('io');
+        if (io) {
+          // Kick user văng ra ngoài ngay lập tức
+          io.to(`user:${user._id}`).emit('force_logout', {
+            reason: 'Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên.',
+            code: 'ACCOUNT_LOCKED'
+          });
+          
+          // Cập nhật stats cho admin dashboard
+          io.to('admin_room').emit('admin_stats_update');
+        }
+      } catch (err) {
+        console.error('[Security] Failed to kill sessions during lock:', err.message);
+      }
+    }
 
     // PB24: Ghi nhật ký hệ thống sử dụng Model mới
     const actionStr = user.isLocked ? 'Khóa tài khoản' : 'Mở khóa tài khoản';

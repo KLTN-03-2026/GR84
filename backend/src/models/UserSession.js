@@ -57,7 +57,7 @@ const userSessionSchema = new mongoose.Schema({
   // ─── Session Status ───
   status: {
     type: String,
-    enum: ['active', 'expired', 'revoked'],
+    enum: ['active', 'expired', 'revoked', 'logged_out'],
     default: 'active',
     index: true
   },
@@ -142,6 +142,13 @@ userSessionSchema.statics.parseDeviceInfo = function (userAgentString) {
 // ─── Static: Tạo session mới khi user đăng nhập ───
 userSessionSchema.statics.createSession = async function (userId, token, req) {
   const tokenHash = this.hashToken(token);
+
+  // PB23: Tránh tạo trùng session cho cùng 1 token (race condition)
+  const existingSession = await this.findOne({ tokenHash });
+  if (existingSession) {
+    console.log('[Session] Using existing session for token hash');
+    return existingSession;
+  }
 
   // Decode JWT để lấy expiration
   const decoded = jwt.decode(token);
@@ -254,7 +261,7 @@ userSessionSchema.statics.revokeByToken = async function (token) {
   return this.findOneAndUpdate(
     { tokenHash, status: 'active' },
     {
-      status: 'revoked',
+      status: 'logged_out',
       revokedAt: new Date(),
       revokeReason: 'User logout'
     },

@@ -15,7 +15,7 @@ import { validateUsername, validateEmail, validatePassword } from '../utils/vali
 // USER REGISTRATION
 // ===========================================
 
-export const registerUser = async ({ username, email, password, confirmPassword }) => {
+export const registerUser = async ({ username, email, password, confirmPassword }, req = null) => {
   const trimmedUsername = username?.trim().toLowerCase() || '';
   const trimmedEmail = email?.trim().toLowerCase() || '';
   const trimmedPassword = password?.trim() || '';
@@ -25,6 +25,11 @@ export const registerUser = async ({ username, email, password, confirmPassword 
 
   const emailError = validateEmail(trimmedEmail);
   if (emailError) return { error: emailError, status: 400 };
+
+  // GMAIL ONLY RULE
+  if (!trimmedEmail.endsWith('@gmail.com')) {
+    return { error: 'Chỉ chấp nhận đăng ký bằng tài khoản @gmail.com', status: 400 };
+  }
 
   const passwordError = validatePassword(trimmedPassword);
   if (passwordError) return { error: passwordError, status: 400 };
@@ -42,6 +47,14 @@ export const registerUser = async ({ username, email, password, confirmPassword 
 
   if (existingUser) {
     if (existingUser.email === trimmedEmail) {
+      const provider = User.resolveAuthProvider(existingUser);
+      if (provider !== 'local') {
+        console.warn(`[Auth] Registration conflict: Email ${trimmedEmail} already exists as ${provider} account.`);
+        return { 
+          error: `Email này đã được đăng ký bằng ${provider === 'google' ? 'Google' : 'Facebook'}. Vui lòng sử dụng đăng nhập mạng xã hội.`, 
+          status: 409 
+        };
+      }
       return { error: 'Email already registered', status: 400 };
     }
     return { error: 'Username already taken', status: 400 };
@@ -53,18 +66,39 @@ export const registerUser = async ({ username, email, password, confirmPassword 
     username: trimmedUsername,
     email: trimmedEmail,
     passwordHash,
-    loginMethod: 'email',
+    authProvider: 'local',
+    loginMethod: 'local',
     isEmailVerified: false,
+    onboardingCompleted: false,
+    status: 'pending_onboarding',
     profileCompletion: 0
   });
 
   const token = generateToken(user._id);
 
+  console.log(`[Auth] User registered: ${trimmedUsername} (${trimmedEmail}). Status: pending_onboarding`);
+
+  if (req) {
+    try {
+      await UserSession.createSession(user._id, token, req);
+      await User.findByIdAndUpdate(user._id, { isOnline: true });
+      
+      // Emit update cho admin dashboard
+      const io = req.app?.get('io');
+      if (io) {
+        io.to('admin_room').emit('admin_stats_update');
+      }
+    } catch (err) {
+      console.error('[Session] Failed to create session on register:', err.message);
+    }
+  }
+
   return {
     user: sanitizeUser(user),
     token,
     profileCompletion: 0,
-    needsOnboarding: true
+    needsOnboarding: true,
+    message: 'Đăng ký bước 1 thành công. Vui lòng hoàn tất thông tin cá nhân.'
   };
 };
 
@@ -103,9 +137,18 @@ export const loginUser = async ({ email, password, username, facebookId, googleI
     return { error: 'Email hoặc tên người dùng không tồn tại', status: 401 };
   }
 
+  const provider = User.resolveAuthProvider(user);
+  if (provider !== 'local') {
+    console.warn(`[Auth] Login blocked: User ${identifier} is a ${provider} account trying to use local login.`);
+    return { 
+      error: `Tài khoản này đăng nhập bằng ${provider === 'google' ? 'Google' : 'Facebook'}. Vui lòng sử dụng đăng nhập mạng xã hội.`, 
+      status: 401 
+    };
+  }
+
   if (!user.passwordHash) {
-    console.error(`[Auth] Login failed: User ${identifier} has no passwordHash (social login user)`);
-    return { error: 'Tài khoản này đăng nhập bằng Google/Facebook. Vui lòng sử dụng đăng nhập mạng xã hội.', status: 401 };
+    console.error(`[Auth] Login failed: User ${identifier} has no passwordHash`);
+    return { error: 'Tài khoản chưa được thiết lập mật khẩu. Vui lòng sử dụng đăng nhập mạng xã hội hoặc khôi phục mật khẩu.', status: 401 };
   }
 
   if (user.isLocked) {
@@ -136,6 +179,13 @@ export const loginUser = async ({ email, password, username, facebookId, googleI
   if (req) {
     try {
       await UserSession.createSession(user._id, token, req);
+      await User.findByIdAndUpdate(user._id, { isOnline: true });
+      
+      // Emit update cho admin dashboard
+      const io = req.app?.get('io');
+      if (io) {
+        io.to('admin_room').emit('admin_stats_update');
+      }
     } catch (err) {
       console.error('[Session] Failed to create session:', err.message);
     }
@@ -160,17 +210,27 @@ async function handleSocialLogin(provider, profileId, req) {
     user = await User.findOne({ email });
 
     if (user) {
+      const existingProvider = User.resolveAuthProvider(user);
+      if (existingProvider === 'local') {
+        console.warn(`[Auth] Social login link blocked: Email ${email} already has a local account.`);
+        return {
+          error: 'Email này đã có tài khoản mật khẩu. Vui lòng đăng nhập bình thường và liên kết mạng xã hội trong phần cài đặt.',
+          status: 409
+        };
+      }
+      
       await User.updateOne(
         { _id: user._id },
         {
           $set: {
             [field]: profileId,
+            authProvider: provider,
             loginMethod: provider,
             isEmailVerified: true
           }
         }
       );
-      console.log(`[Auth] Linked ${provider} to existing user: ${email}`);
+      console.log(`[Auth] Linked ${provider} to existing social user: ${email}`);
     }
   }
 
@@ -181,19 +241,20 @@ async function handleSocialLogin(provider, profileId, req) {
       provider
     );
 
-    const passwordHash = await hashPassword(`social_${provider}_${Date.now()}`);
-
+    // No passwordHash for social users
     user = await User.create({
       [field]: profileId,
       email: email || undefined,
       username: safeUsername,
       fullName: req?.body?.fullName || '',
       avatar: req?.body?.avatar || '',
+      authProvider: provider,
       loginMethod: provider,
       isEmailVerified: true,
-      passwordHash
+      onboardingCompleted: false,
+      status: 'pending_onboarding'
     });
-    console.log(`[Auth] Created new social user: ${safeUsername}`);
+    console.log(`[Auth] Created new social user: ${safeUsername} (${provider})`);
   }
 
   await User.updateOne(
@@ -226,21 +287,40 @@ export const getCurrentUserById = async (userId) => {
 // LOGOUT
 // ===========================================
 
-export const logoutUser = async (userId, token = null) => {
-  await User.updateOne(
-    { _id: userId },
-    { $set: { isOnline: false } }
-  );
+export const logoutUser = async (userId, token = null, req = null) => {
+  // Logic updated below: only set isOnline: false if no more active sessions
 
   if (token) {
     try {
       await UserSession.revokeByToken(token);
+      
+      // Check if user has other active sessions
+      const activeSessionsCount = await UserSession.countDocuments({
+        userId,
+        status: 'active'
+      });
+      
+      if (activeSessionsCount === 0) {
+        await User.updateOne(
+          { _id: userId },
+          { $set: { isOnline: false } }
+        );
+      }
     } catch (err) {
       console.error('[Session] Failed to revoke session on logout:', err.message);
     }
   }
 
   console.log(`[Auth] User ${userId} logged out`);
+
+  // Emit update cho admin dashboard
+  if (req) {
+    const io = req.app?.get('io');
+    if (io) {
+      io.to('admin_room').emit('admin_stats_update');
+    }
+  }
+
   return { success: true };
 };
 
@@ -285,6 +365,7 @@ export const requestPasswordReset = async ({ email }) => {
 
   const user = await User.findOne({ email: trimmedEmail });
   if (!user) {
+    console.log("[FORGOT PASSWORD] Email not found, returning safe response");
     return { message: 'If your email is registered, you will receive an OTP code' };
   }
 
@@ -295,21 +376,56 @@ export const requestPasswordReset = async ({ email }) => {
     };
   }
 
+  // Rate Limiting: Max 3 requests per 5 minutes
+  const now = new Date();
+  const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+  
+  // Filter out requests older than 5 minutes
+  user.otpRequests = (user.otpRequests || []).filter(date => date > fiveMinutesAgo);
+  
+  if (user.otpRequests.length >= 3) {
+    return { error: 'Too many OTP requests. Please try again after 5 minutes.', status: 429 };
+  }
+  
+  // Add new request timestamp
+  user.otpRequests.push(now);
+
   const otp = generateOTP();
   const otpExpire = getOTPExpiry();
+  console.log("[OTP] Generated for:", trimmedEmail);
 
+  console.log("[OTP] Saving OTP started");
   await User.updateOne(
     { _id: user._id },
     {
       $set: {
         resetOTP: otp,
-        resetOtpExpire: otpExpire
+        resetOtpExpire: otpExpire,
+        otpRequests: user.otpRequests
       }
     }
   );
+  console.log("[OTP] Saving OTP completed");
 
-  console.log(`[OTP] Generated for ${trimmedEmail}`);
-  await sendOTP(trimmedEmail, otp);
+  console.log("[EMAIL] Preparing email send");
+  console.log("[EMAIL] sendOtpEmail called");
+  
+  const sendResult = await sendOTP(trimmedEmail, otp);
+  console.log("[EMAIL] sendOtpEmail completed");
+
+  if (!sendResult.success) {
+    console.error("[FORGOT PASSWORD SERVICE ERROR] sendOTP failed, clearing resetOTP from database");
+    await User.updateOne(
+      { _id: user._id },
+      {
+        $unset: {
+          resetOTP: '',
+          resetOtpExpire: ''
+        }
+      }
+    );
+    throw new Error(sendResult.message || 'Cannot send OTP. Please try again later.');
+  }
 
   return { message: 'If your email is registered, you will receive an OTP code' };
 };
@@ -375,9 +491,7 @@ export const resetUserPassword = async ({ email, otp, newPassword }) => {
     { _id: user._id },
     {
       $set: {
-        passwordHash,
-        resetOTP: null,
-        resetOtpExpire: null
+        passwordHash
       },
       $unset: {
         resetOTP: '',
@@ -425,6 +539,7 @@ function sanitizeUser(user) {
   if (!user) return null;
   return {
     _id: user._id,
+    id: user._id.toString(),
     username: user.username,
     email: user.email,
     fullName: user.fullName || '',
@@ -436,6 +551,11 @@ function sanitizeUser(user) {
     interests: user.interests || [],
     photos: user.photos || [],
     profileCompletion: user.profileCompletion || 0,
+    verificationLevel: user.verificationLevel || 1,
+    isVerifiedProfile: user.isVerifiedProfile || false,
+    isVerified: (user.verificationLevel >= 2) || (user.isVerifiedProfile === true),
+    onboardingCompleted: user.onboardingCompleted || false,
+    authProvider: user.authProvider || User.resolveAuthProvider(user),
     loginMethod: user.loginMethod,
     isEmailVerified: user.isEmailVerified,
     isOnline: user.isOnline,
@@ -457,7 +577,7 @@ export default {
   socialLogin: (data, req) => handleSocialLogin(
     data.facebookId ? 'facebook' : 'google',
     data.facebookId || data.googleId,
-    req
+    req || { body: data }
   ),
   linkSocialAccountToUser,
   requestPasswordReset,

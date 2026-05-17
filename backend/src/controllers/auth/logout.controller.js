@@ -11,7 +11,7 @@ export const logout = async (req, res, next) => {
       ? authHeader.split(' ')[1]
       : null;
 
-    await authService.logoutUser(req.user._id, token);
+    await authService.logoutUser(req.user._id, token, req);
     res.json({ success: true, message: 'Logged out successfully' });
   } catch (error) {
     next(error);

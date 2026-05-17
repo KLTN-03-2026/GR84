@@ -15,6 +15,11 @@ const reportSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  conversationId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Match',
+    default: null
+  },
   reason: {
     type: String,
     required: true,

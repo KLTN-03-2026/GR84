@@ -5,11 +5,15 @@
 import Message from '../models/Message.js';
 import Match from '../models/Match.js';
 import User from '../models/User.js';
+import Notification from '../models/Notification.js';
 
 const checkMatchAccess = async (matchId, userId) => {
   const match = await Match.findById(matchId);
   if (!match) return { error: 'Match not found', status: 404 };
   if (!match.hasUser(userId)) return { error: 'Not authorized', status: 403 };
+  if (!match.isActive || match.status === 'unmatched') {
+    return { error: 'Cuộc trò chuyện đã kết thúc hoặc bị hủy tương hợp', status: 403 };
+  }
   return { match };
 };
 
@@ -95,20 +99,45 @@ export const sendMessage = async (matchId, userId, { content, image, mediaUrl, m
   delete populatedMessage.senderId;
 
   match.lastActivity = new Date();
+  match.lastMessage = content || (image || mediaUrl ? '[Hình ảnh]' : '');
+  match.lastMessageAt = new Date();
   await match.save();
+
+  const receiverId = match.getOtherUser(userId);
+  if (receiverId) {
+    try {
+      const exists = await Notification.exists({ messageId: populatedMessage._id });
+      if (!exists) {
+        await Notification.create({
+          recipient: receiverId,
+          type: 'message',
+          sender: userId,
+          matchId: match._id,
+          messageId: populatedMessage._id,
+          content: content || (image || mediaUrl ? '[Hình ảnh]' : ''),
+          read: false
+        });
+      }
+    } catch (notifErr) {
+      console.error('[Notification Error] Failed to save notification:', notifErr.message);
+    }
+  }
 
   return { message: populatedMessage };
 };
 
 export const getConversations = async (userId) => {
-  // 4. Ensure users are populated
+  // Ensure matches are sorted with most recent activity first
   const matches = await Match.find({
     $or: [
       { user1Id: userId },
       { user2Id: userId }
     ],
-    isActive: true
-  }).populate('users', 'username avatar _id');
+    isActive: true,
+    status: 'active'
+  })
+    .populate('users', 'username avatar _id')
+    .sort({ lastActivity: -1, updatedAt: -1 });
 
   if (matches.length === 0) return { conversations: [] };
 
@@ -159,12 +188,10 @@ export const getConversations = async (userId) => {
   const senderMap = new Map(senders.map(s => [s._id.toString(), s]));
 
   const conversations = matches.map(match => {
-    // 3. Fix logic to correctly determine the "other user" in a match
     const otherUser = match.users.find(
       u => u._id.toString() !== userId.toString()
     );
 
-    // 6. Add safety: If otherUser is missing -> skip this conversation
     if (!otherUser) return null;
 
     const lastMessage = lastMessageMap.get(match._id.toString());
@@ -176,24 +203,26 @@ export const getConversations = async (userId) => {
       }
     }
 
-    // 5. Fix response structure
     return {
       matchId: match._id,
       userId: otherUser._id,
       user: otherUser,
       lastMessage: lastMessage || null,
       unreadCount: unreadCountMap.get(match._id.toString()) || 0,
+      lastActivity: match.lastActivity || match.updatedAt || match.createdAt || new Date(),
       updatedAt: match.updatedAt
     };
   });
 
-  const populatedConversations = await Match.populate(conversations, {
+  const filteredConversations = conversations.filter(Boolean);
+
+  const populatedConversations = await Match.populate(filteredConversations, {
     path: 'userId',
     model: 'User',
     select: 'username fullName avatar isOnline lastSeen'
   });
 
-  return { conversations };
+  return { conversations: populatedConversations };
 };
 
 export const markMessagesAsRead = async (matchId, userId) => {
@@ -213,9 +242,46 @@ export const markMessagesAsRead = async (matchId, userId) => {
   return { message: 'Messages marked as read' };
 };
 
+export const getOrCreateConversation = async (userId, receiverId) => {
+  if (userId.toString() === receiverId.toString()) {
+    return { error: 'You cannot chat with yourself', status: 400 };
+  }
+
+  const receiver = await User.findById(receiverId);
+  if (!receiver) {
+    return { error: 'Recipient not found', status: 404 };
+  }
+
+  // Find existing match (conversation)
+  let match = await Match.findMatch(userId, receiverId);
+
+  if (!match) {
+    console.log(`[Chat] Creating new conversation between ${userId} and ${receiverId}`);
+    // For this app, a conversation is a Match
+    match = await Match.create({
+      user1Id: userId,
+      user2Id: receiverId,
+      matchedAt: new Date(),
+      isActive: true,
+      status: 'active'
+    });
+  } else if (!match.isActive || match.status === 'unmatched') {
+    console.log(`[Chat] Reactivating existing conversation ${match._id}`);
+    match.isActive = true;
+    match.status = 'active';
+    match.matchedAt = new Date();
+    await match.save();
+  } else {
+    console.log(`[Chat] Reusing existing conversation ${match._id}`);
+  }
+
+  return { conversation: match };
+};
+
 export default {
   getMessages,
   sendMessage,
   getConversations,
-  markMessagesAsRead
+  markMessagesAsRead,
+  getOrCreateConversation
 };

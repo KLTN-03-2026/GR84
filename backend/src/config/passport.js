@@ -86,6 +86,7 @@ const linkSocialAccount = async (user, profile, provider, photos) => {
   } else if (provider === 'facebook') {
     user.facebookId = profile.id;
   }
+  user.authProvider = provider;
   user.loginMethod = provider;
   user.isEmailVerified = true;
   if (photos?.[0]?.value && !user.avatar) {
@@ -147,7 +148,14 @@ if (config.google?.clientID && config.google?.clientSecret) {
       if (email) {
         const userByEmail = await User.findOne({ email: email.toLowerCase() });
         if (userByEmail) {
-          console.log('   Found existing user by email, linking Google ID...');
+          const existingProvider = User.resolveAuthProvider(userByEmail);
+          if (existingProvider === 'local') {
+            console.warn('   Existing user by email is LOCAL, blocking auto-link.');
+            return done(null, false, { 
+              message: 'Email này đã có tài khoản mật khẩu. Vui lòng đăng nhập bình thường và liên kết Google trong cài đặt.' 
+            });
+          }
+          console.log('   Found existing social user by email, linking Google ID...');
           await linkSocialAccount(userByEmail, profile, 'google', profile.photos);
           return done(null, userByEmail);
         }
@@ -168,9 +176,10 @@ if (config.google?.clientID && config.google?.clientSecret) {
         username: safeUsername,
         fullName: profile.displayName || '',
         avatar: photoUrl || '',
+        authProvider: 'google',
         loginMethod: 'google',
-        isEmailVerified: true,
-        passwordHash: 'SOCIAL_LOGIN_' + Date.now()
+        isEmailVerified: true
+        // No passwordHash for social users
         // location uses default: { type: 'Point', coordinates: [0, 0] }
       });
 
@@ -220,6 +229,13 @@ if (config.facebook?.clientID && config.facebook?.clientSecret) {
       if (email) {
         const userByEmail = await User.findOne({ email: email.toLowerCase() });
         if (userByEmail) {
+          const existingProvider = User.resolveAuthProvider(userByEmail);
+          if (existingProvider === 'local') {
+            console.warn('   Existing user by email is LOCAL, blocking auto-link.');
+            return done(null, false, { 
+              message: 'Email này đã có tài khoản mật khẩu. Vui lòng đăng nhập bình thường và liên kết Facebook trong cài đặt.' 
+            });
+          }
           await linkSocialAccount(userByEmail, profile, 'facebook', profile.photos);
           return done(null, userByEmail);
         }
@@ -237,9 +253,9 @@ if (config.facebook?.clientID && config.facebook?.clientSecret) {
         username: safeUsername,
         fullName: profile.displayName,
         avatar: profile.photos?.[0]?.value || '',
+        authProvider: 'facebook',
         loginMethod: 'facebook',
-        isEmailVerified: true,
-        passwordHash: 'SOCIAL_LOGIN_' + Date.now()
+        isEmailVerified: true
       });
 
       newUser.lastLogin = new Date();

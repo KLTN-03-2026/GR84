@@ -1,15 +1,12 @@
-/**
- * Pass User Controller - Thin layer, delegates to service
- */
 import matchService from '../../services/match.service.js';
+import { resolveUserId } from '../../utils/idResolver.js';
 
 export const passUser = async (req, res, next) => {
   try {
-    const targetUserIdRaw = req.body.userId;
-    const targetUserId = targetUserIdRaw ? Buffer.from(targetUserIdRaw, 'base64').toString('ascii') : null;
+    const targetUserId = resolveUserId(req.body.userId);
 
     if (!targetUserId) {
-      return res.status(400).json({ success: false, message: 'Invalid user ID' });
+      return res.status(400).json({ success: false, message: 'Invalid or malformed user ID' });
     }
 
     const result = await matchService.passUser(req.user._id, targetUserId);

@@ -1,9 +1,10 @@
 import jwt from 'jsonwebtoken';
 import config from '../config/index.js';
-import User from '../models/User.js';
+import User, { isUserPremium } from '../models/User.js';
 import Message from '../models/Message.js';
 import Match from '../models/Match.js';
 import VideoCall from '../models/VideoCall.js';
+import Notification from '../models/Notification.js';
 import redis, {
   removeFromWaitingQueue,
   getValidPartner,
@@ -97,16 +98,28 @@ export const initializeSocket = (io) => {
     // CHAT - Room Management
     // ===========================================
 
-    socket.on('join_room', (matchId) => {
-      if (!matchId) return;
+    socket.on('join_room', (payload) => {
+      const matchId = payload && typeof payload === 'object' ? payload.matchId : payload;
+
+      if (!matchId) {
+        console.warn(`[Socket] join_room missing matchId from ${username} (${userId}) payload:`, payload);
+        return;
+      }
+
       socket.join(`match:${matchId}`);
-      console.log(`[Chat] ${username} joined room: ${matchId}`);
+      console.log(`[Socket] ${username} (${userId}) socket:${socket.id} joined room match:${matchId}`);
     });
 
-    socket.on('leave_room', (matchId) => {
-      if (!matchId) return;
+    socket.on('leave_room', (payload) => {
+      const matchId = payload && typeof payload === 'object' ? payload.matchId : payload;
+
+      if (!matchId) {
+        console.warn(`[Socket] leave_room missing matchId from ${username} (${userId}) payload:`, payload);
+        return;
+      }
+
       socket.leave(`match:${matchId}`);
-      console.log(`[Chat] ${username} left room: ${matchId}`);
+      console.log(`[Socket] ${username} (${userId}) socket:${socket.id} left room match:${matchId}`);
     });
 
     // ===========================================
@@ -151,9 +164,34 @@ export const initializeSocket = (io) => {
           .populate('sender', 'username fullName avatar');
 
         match.lastActivity = new Date();
+        match.lastMessage = content || (type === 'image' ? '[Hình ảnh]' : '');
+        match.lastMessageAt = new Date();
         await match.save();
 
-        io.to(`match:${matchId}`).emit('receive_message', populatedMessage);
+        const otherUserId = match.getOtherUser(socket.user._id);
+        if (otherUserId) {
+          try {
+            const exists = await Notification.exists({ messageId: message._id });
+            if (!exists) {
+              await Notification.create({
+                recipient: otherUserId,
+                type: 'message',
+                sender: socket.user._id,
+                matchId: match._id,
+                messageId: message._id,
+                content: content || (type === 'image' ? '[Hình ảnh]' : ''),
+                read: false
+              });
+            }
+          } catch (notifErr) {
+            console.error('[Notification Error] Failed to save socket notification:', notifErr.message);
+          }
+        }
+
+        const roomName = `match:${matchId}`;
+        console.log(`[Socket] send_message success. Broadcast to room ${roomName} | callId/matchId: ${matchId} | sender: ${socket.user._id} | receiver: ${otherUserId || 'none'}`);
+
+        io.to(roomName).emit('receive_message', populatedMessage);
       } catch (error) {
         console.error('[Chat] send_message error:', error);
         socket.emit('error', { message: 'Failed to send message' });
@@ -220,6 +258,50 @@ export const initializeSocket = (io) => {
       console.log(`[RANDOM] find_random_partner: ${username} (${currentUserId})`);
 
       try {
+        // Kiểm tra quyền Premium từ Database
+        const dbUser = await User.findById(currentUserId);
+        
+        // CHỐNG BYPASS: User chưa onboarding không được dùng random video
+        if (!dbUser?.onboardingCompleted) {
+          console.log(`[RANDOM BLOCKED] User ${username} attempted random but onboarding incomplete.`);
+          socket.emit('video_error', { message: 'Vui lòng hoàn tất onboarding trước khi tham gia.' });
+          return;
+        }
+
+        const isPremium = isUserPremium(dbUser);
+
+        const hasActiveMembership = Boolean(
+          dbUser &&
+          dbUser.membership &&
+          dbUser.membership.status === "active" &&
+          dbUser.membership.premiumUntil &&
+          new Date(dbUser.membership.premiumUntil) > new Date()
+        );
+
+        let premiumSource = "none";
+        if (hasActiveMembership) {
+          premiumSource = "membership";
+        } else if (dbUser && dbUser.role === "premium") {
+          premiumSource = "role";
+        }
+
+        console.log("[RANDOM PREMIUM CHECK]", {
+          userId: currentUserId,
+          role: dbUser?.role,
+          membershipStatus: dbUser?.membership?.status,
+          premiumUntil: dbUser?.membership?.premiumUntil,
+          isPremium,
+          premiumSource
+        });
+
+        if (!isPremium) {
+          console.log(`[RANDOM LOCKED] User ${username} (${currentUserId}) attempted random matchmaking but is not Premium.`);
+          socket.emit('random_video_locked', {
+            message: 'Random Video là tính năng dành riêng cho thành viên Premium.'
+          });
+          return;
+        }
+
         // Remove any existing entry (idempotent)
         await removeFromWaitingQueue(currentUserId);
 
@@ -252,7 +334,8 @@ export const initializeSocket = (io) => {
           socket.emit('random_partner_found', {
             sessionId,
             partner: partner,
-            sessionType: 'random'
+            sessionType: 'random',
+            role: 'caller'
           });
 
           // Emit to partner via socket ID
@@ -261,7 +344,8 @@ export const initializeSocket = (io) => {
             io.to(partnerSocketId).emit('random_partner_found', {
               sessionId,
               partner: currentUser,
-              sessionType: 'random'
+              sessionType: 'random',
+              role: 'receiver'
             });
             console.log(`[RANDOM] Notified partner ${partnerId} via socket ${partnerSocketId}`);
           }
@@ -349,7 +433,8 @@ export const initializeSocket = (io) => {
               socket.emit('random_partner_found', {
                 sessionId: newSessionId,
                 partner: newPartner,
-                sessionType: 'random'
+                sessionType: 'random',
+                role: 'caller'
               });
 
               const newPartnerSocketId = userSocketMap[newPartnerId];
@@ -357,7 +442,8 @@ export const initializeSocket = (io) => {
                 io.to(newPartnerSocketId).emit('random_partner_found', {
                   sessionId: newSessionId,
                   partner: currentUser,
-                  sessionType: 'random'
+                  sessionType: 'random',
+                  role: 'receiver'
                 });
               }
 
@@ -419,16 +505,18 @@ export const initializeSocket = (io) => {
      * Initiate a call to specific user
      */
     socket.on('call_user', (data) => {
-      const { targetUserId, signalData, callType, matchId, callId } = data;
+      const { targetUserId, receiverId, callerId, signalData, callType, matchId, callId } = data;
+      const finalReceiverId = receiverId || targetUserId;
+      const finalCallerId = callerId || socket.user._id;
 
-      if (!targetUserId || !signalData) {
-        console.warn('[CALL] Invalid call data');
+      if (!finalReceiverId || !signalData) {
+        console.warn('[CALL] Invalid call data', { finalReceiverId, hasSignal: !!signalData });
         return;
       }
 
-      const targetSocketId = userSocketMap[targetUserId];
+      const targetSocketId = userSocketMap[finalReceiverId];
 
-      console.log(`[CALL] Initiate: ${username} (${userId}) → ${targetUserId} match:${matchId} callId:${callId}`);
+      console.log(`[SOCKET_EVENT: call_user] callId:${callId} | matchId:${matchId} | callerId:${finalCallerId} | receiverId:${finalReceiverId} | sender_socket:${socket.id} | target_socket:${targetSocketId}`);
 
       if (!targetSocketId) {
         socket.emit('call_error', { message: 'User is offline' });
@@ -452,16 +540,18 @@ export const initializeSocket = (io) => {
      * Accept incoming call
      */
     socket.on('accept_call', (data) => {
-      const { callerId, signalData, callId } = data;
+      const { callerId, receiverId, signalData, matchId, callId } = data;
+      const finalCallerId = callerId;
+      const finalReceiverId = receiverId || socket.user._id;
 
-      if (!callerId || !signalData) {
-        console.warn('[CALL] Invalid accept data');
+      if (!finalCallerId || !signalData) {
+        console.warn('[CALL] Invalid accept data', { finalCallerId, hasSignal: !!signalData });
         return;
       }
 
-      const callerSocketId = userSocketMap[callerId];
+      const callerSocketId = userSocketMap[finalCallerId];
 
-      console.log(`[CALL] Accepted: ${username} → ${callerId} callId:${callId}`);
+      console.log(`[SOCKET_EVENT: accept_call] callId:${callId} | matchId:${matchId} | callerId:${finalCallerId} | receiverId:${finalReceiverId} | sender_socket:${socket.id} | target_socket:${callerSocketId}`);
 
       if (callerSocketId) {
         io.to(callerSocketId).emit('call_accepted', {
@@ -480,20 +570,21 @@ export const initializeSocket = (io) => {
      * Reject incoming call
      */
     socket.on('reject_call', (data) => {
-      const { callerId } = data;
+      const { callerId, matchId, callId } = data;
 
       if (!callerId) return;
 
       const callerSocketId = userSocketMap[callerId];
 
-      console.log(`[CALL] Rejected: ${username} → ${callerId}`);
+      console.log(`[SOCKET_EVENT: reject_call] callId:${callId} | matchId:${matchId} | callerId:${callerId} | receiverId:${socket.user._id} | sender_socket:${socket.id} | target_socket:${callerSocketId}`);
 
       if (callerSocketId) {
         io.to(callerSocketId).emit('call_rejected', {
           callee: {
             _id: socket.user._id,
             username: socket.user.username
-          }
+          },
+          callId
         });
       }
     });
@@ -502,20 +593,22 @@ export const initializeSocket = (io) => {
      * End active call
      */
     socket.on('end_call', (data) => {
-      const { targetUserId } = data;
+      const { targetUserId, toUserId, matchId, callId } = data;
+      const finalToUserId = toUserId || targetUserId;
 
-      if (!targetUserId) return;
+      if (!finalToUserId) return;
 
-      const targetSocketId = userSocketMap[targetUserId];
+      const targetSocketId = userSocketMap[finalToUserId];
 
-      console.log(`[CALL] Ended: ${username} ↔ ${targetUserId}`);
+      console.log(`[SOCKET_EVENT: end_call] callId:${callId} | matchId:${matchId} | fromUserId:${socket.user._id} | toUserId:${finalToUserId} | sender_socket:${socket.id} | target_socket:${targetSocketId}`);
 
       if (targetSocketId) {
         io.to(targetSocketId).emit('call_ended', {
           caller: {
             _id: socket.user._id,
             username: socket.user.username
-          }
+          },
+          callId
         });
       }
     });
@@ -524,17 +617,21 @@ export const initializeSocket = (io) => {
      * Relay ICE Candidates
      */
     socket.on('ice_candidate', (data) => {
-      const { targetUserId, candidate, matchId } = data;
+      const { targetUserId, toUserId, candidate, matchId, callId } = data;
+      const finalToUserId = toUserId || targetUserId;
 
-      if (!targetUserId || !candidate) return;
+      if (!finalToUserId || !candidate) return;
 
-      const targetSocketId = userSocketMap[targetUserId];
+      const targetSocketId = userSocketMap[finalToUserId];
+
+      console.log(`[SOCKET_EVENT: ice_candidate] callId:${callId} | matchId:${matchId} | fromUserId:${socket.user._id} | toUserId:${finalToUserId} | sender_socket:${socket.id} | target_socket:${targetSocketId}`);
 
       if (targetSocketId) {
         io.to(targetSocketId).emit('ice_candidate', {
           candidate,
           from: socket.user._id,
-          matchId
+          matchId,
+          callId
         });
       }
     });
@@ -547,18 +644,49 @@ export const initializeSocket = (io) => {
      * WebRTC signal relay (offer/answer/candidate)
      */
     socket.on('webrtc_signal', (data) => {
+      const { targetUserId, toUserId, fromUserId, signal, type, matchId, callId } = data;
+      const finalToUserId = toUserId || targetUserId;
+      const finalFromUserId = fromUserId || socket.user._id;
+
+      if (!finalToUserId || !signal) {
+        console.warn('[WebRTC] Invalid signal data');
+        return;
+      }
+
+      const targetSocketId = userSocketMap[finalToUserId];
+
+      console.log(`[SOCKET_EVENT: webrtc_signal] callId:${callId} | matchId:${matchId} | fromUserId:${finalFromUserId} | toUserId:${finalToUserId} | sender_socket:${socket.id} | target_socket:${targetSocketId} | signal_type:${type}`);
+
+      if (targetSocketId) {
+        io.to(targetSocketId).emit('webrtc_signal', {
+          signal,
+          type,
+          callId,
+          matchId,
+          from: {
+            _id: socket.user._id,
+            username: socket.user.username
+          }
+        });
+      }
+    });
+
+    /**
+     * WebRTC signal relay for RANDOM video call
+     */
+    socket.on('random_webrtc_signal', (data) => {
       const { targetUserId, signal, type, callId } = data;
 
       if (!targetUserId || !signal) {
-        console.warn('[WebRTC] Invalid signal data');
+        console.warn('[WebRTC Random] Invalid signal data');
         return;
       }
 
       const targetSocketId = userSocketMap[targetUserId];
 
       if (targetSocketId) {
-        console.log(`[WebRTC] Relaying ${type} from ${userId} to ${targetUserId} callId:${callId}`);
-        io.to(targetSocketId).emit('webrtc_signal', {
+        console.log(`[WebRTC Random] Relaying ${type} from ${userId} to ${targetUserId}`);
+        io.to(targetSocketId).emit('random_webrtc_signal', {
           signal,
           type,
           callId,
@@ -570,23 +698,7 @@ export const initializeSocket = (io) => {
       }
     });
 
-    /**
-     * ICE candidate for direct calls
-     */
-    socket.on('ice_candidate', (data) => {
-      const { targetUserId, candidate } = data;
 
-      if (!targetUserId || !candidate) return;
-
-      const targetSocketId = userSocketMap[targetUserId];
-
-      if (targetSocketId) {
-        io.to(targetSocketId).emit('ice_candidate', {
-          candidate,
-          from: socket.user._id
-        });
-      }
-    });
 
     // ===========================================
     // DISCONNECT

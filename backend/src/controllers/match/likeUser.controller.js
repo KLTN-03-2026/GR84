@@ -1,17 +1,14 @@
-/**
- * Like User Controller - Thin layer, delegates to service
- * FIX: Return conversationId on match, send notification for non-mutual like
- */
 import matchService from '../../services/match.service.js';
+import { resolveUserId } from '../../utils/idResolver.js';
+import Notification from '../../models/Notification.js';
 
 export const likeUser = async (req, res, next) => {
   try {
-    // Decode the Base64 user ID back to standard string (Database ID format)
-    const targetUserIdRaw = req.body.userId;
-    const targetUserId = targetUserIdRaw ? Buffer.from(targetUserIdRaw, 'base64').toString('ascii') : null;
+    // Decode and resolve target ID safely (either hex ObjectId or Base64 encoded)
+    const targetUserId = resolveUserId(req.body.userId);
 
     if (!targetUserId) {
-      return res.status(400).json({ success: false, message: 'Invalid user ID' });
+      return res.status(400).json({ success: false, message: 'Invalid or malformed user ID' });
     }
 
     const result = await matchService.likeUser(req.user._id, targetUserId);
@@ -43,6 +40,19 @@ export const likeUser = async (req, res, next) => {
         console.log(`[Socket.IO] 📢 Sent 'new_match' to user ${targetUserId}`);
       }
 
+      // Create persistent DB notification for target user
+      try {
+        await Notification.create({
+          recipient: targetUserId,
+          type: 'match',
+          matchedBy: otherUser._id,
+          matchId: result.match._id,
+          read: false
+        });
+      } catch (notifErr) {
+        console.error('[Notification Error] Failed to save match notification:', notifErr.message);
+      }
+
       // Return match data with conversationId for frontend navigation
       res.json({
         success: true,
@@ -68,6 +78,18 @@ export const likeUser = async (req, res, next) => {
         });
 
         console.log(`[Socket.IO] 💖 Sent 'new_like' notification to user ${targetUserId}`);
+      }
+
+      // Create persistent DB notification for target user
+      try {
+        await Notification.create({
+          recipient: targetUserId,
+          type: 'like',
+          from: otherUser._id,
+          read: false
+        });
+      } catch (notifErr) {
+        console.error('[Notification Error] Failed to save like notification:', notifErr.message);
       }
 
       res.json({

@@ -2,6 +2,7 @@ import express from 'express';
 import { getMessages } from '../controllers/message/getMessages.controller.js';
 import { sendMessage } from '../controllers/message/sendMessage.controller.js';
 import { getConversations } from '../controllers/message/getConversations.controller.js';
+import { createConversation } from '../controllers/message/createConversation.controller.js';
 import { markAsRead } from '../controllers/message/markAsRead.controller.js';
 import { uploadMessageImage } from '../controllers/message/uploadMedia.controller.js';
 import { authenticate } from '../middleware/auth.js';
@@ -12,6 +13,9 @@ const router = express.Router();
 
 // Conversation list
 router.get('/conversations', authenticate, getConversations);
+
+// Create or get conversation with a specific user
+router.post('/conversations', authenticate, createConversation);
 
 // Message history with pagination
 router.get('/:matchId', authenticate, getMessages);

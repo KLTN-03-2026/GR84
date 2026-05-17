@@ -59,7 +59,7 @@ const getAllowedOrigins = () => {
 };
 
 const ALLOWED_ORIGINS = getAllowedOrigins();
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://dating-deploy-kxhn.vercel.app';
 
 // ===========================================
 // COOKIE CONFIG - Tự động secure khi production
@@ -119,5 +119,13 @@ export default {
   hasCloudinary,
 
   // Redis
-  redisUrl: process.env.REDIS_URL || 'redis://localhost:6379'
+  redisUrl: process.env.REDIS_URL || 'redis://localhost:6379',
+
+  // VNPAY
+  vnpay: {
+    tmnCode: process.env.VNP_TMNCODE || process.env.VNPAY_TMN_CODE,
+    hashSecret: process.env.VNP_HASH_SECRET || process.env.VNPAY_HASH_SECRET,
+    url: process.env.VNP_URL || process.env.VNPAY_URL || 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html',
+    returnUrl: process.env.VNP_RETURN_URL || process.env.VNPAY_RETURN_URL || 'http://localhost:5000/api/payment/vnpay-return'
+  }
 };

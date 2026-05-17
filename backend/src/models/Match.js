@@ -35,9 +35,34 @@ const matchSchema = new mongoose.Schema({
     default: Date.now
   },
   
+  lastMessage: {
+    type: String,
+    default: ''
+  },
+  
+  lastMessageAt: {
+    type: Date,
+    default: Date.now
+  },
+  
   isActive: {
     type: Boolean,
     default: true
+  },
+  
+  status: {
+    type: String,
+    enum: ['active', 'unmatched'],
+    default: 'active'
+  },
+  
+  unmatchedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  
+  unmatchedAt: {
+    type: Date
   }
 }, {
   timestamps: true
@@ -85,7 +110,8 @@ matchSchema.statics.findMatch = function(userId1, userId2) {
   return this.findOne({
     user1Id: new mongoose.Types.ObjectId(smallerId),
     user2Id: new mongoose.Types.ObjectId(largerId),
-    isActive: true
+    isActive: true,
+    status: 'active'
   });
 };
 
@@ -96,7 +122,8 @@ matchSchema.statics.findUserMatches = function(userId) {
       { user1Id: userId },
       { user2Id: userId }
     ],
-    isActive: true
+    isActive: true,
+    status: 'active'
   }).populate('user1Id user2Id', '-password -passwordHash');
 };
 
@@ -107,7 +134,8 @@ matchSchema.statics.findUserMatchesRaw = function(userId) {
       { user1Id: userId },
       { user2Id: userId }
     ],
-    isActive: true
+    isActive: true,
+    status: 'active'
   });
 };
 

@@ -5,11 +5,11 @@
 import User from '../models/User.js';
 import Match from '../models/Match.js';
 import Swipe from '../models/Swipe.js';
-
+import Block from '../models/Block.js';
 const SAFE_FIELDS = [
   'fullName', 'age', 'gender', 'bio', 'interests', 'location',
   'occupation', 'education', 'height', 'drinking', 'smoking',
-  'lookingFor', 'preferences', 'photos', 'dateOfBirth'
+  'lookingFor', 'preferences', 'photos', 'dateOfBirth', 'onboardingCompleted'
 ];
 
 // ============================================
@@ -29,11 +29,33 @@ const parseIfString = (value, fallback = null) => {
       // Nếu parse thất bại, return fallback
       console.warn('[parseIfString] Failed to parse:', value, '| Error:', e.message);
       return fallback;
-    }
   }
-  
+  }
   return value;
 };
+  
+const parseDate = (dateStr) => {
+  if (!dateStr) return null;
+  // Try dd/mm/yyyy
+  const dmyRegex = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+  const match = dateStr.match(dmyRegex);
+  if (match) {
+    const day = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10);
+    const year = parseInt(match[3], 10);
+    const date = new Date(year, month - 1, day);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  }
+  // Try ISO or standard
+  const parsed = new Date(dateStr);
+  if (!isNaN(parsed.getTime())) {
+    return parsed;
+  }
+  return null;
+};
+
 
 const buildUserQuery = (currentUser, excludeIds = []) => {
   // ============================================
@@ -51,9 +73,7 @@ const buildUserQuery = (currentUser, excludeIds = []) => {
 
   const query = {
     _id: idFilter,
-    // ============================================
-    // 🐛 FIX: Default age range rộng hơn
-    // ============================================
+    status: 'active', // ONLY search for active users
     age: {
       $gte: currentUser.preferences?.minAge ?? 18,
       $lte: currentUser.preferences?.maxAge ?? 100
@@ -112,22 +132,21 @@ export const updateUserProfile = async (userId, updates, file) => {
       // ============================================
       
       if (field === 'dateOfBirth') {
-        // Frontend gửi dateOfBirth, tính age từ đó
         const dob = updates.dateOfBirth;
         if (dob) {
-          const birthDate = new Date(dob);
-          const today = new Date();
-          let age = today.getFullYear() - birthDate.getFullYear();
-          const monthDiff = today.getMonth() - birthDate.getMonth();
-          if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-            age--;
+          const birthDate = parseDate(dob);
+          if (birthDate) {
+            const today = new Date();
+            let age = today.getFullYear() - birthDate.getFullYear();
+            const monthDiff = today.getMonth() - birthDate.getMonth();
+            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+              age--;
+            }
+            if (age >= 18 && age <= 100) {
+              sanitized.age = age;
+            }
+            sanitized.dateOfBirth = birthDate;
           }
-          // Chỉ set age nếu hợp lệ (18-100)
-          if (age >= 18 && age <= 100) {
-            sanitized.age = age;
-          }
-          // Vẫn lưu dateOfBirth nếu model có field này
-          sanitized.dateOfBirth = dob;
         }
         return; // Da xu ly rieng
       }
@@ -188,6 +207,8 @@ export const updateUserProfile = async (userId, updates, file) => {
         } else {
           value = [];
         }
+      } else if (field === 'onboardingCompleted') {
+        value = value === 'true' || value === true || value === 1;
       }
       
       sanitized[field] = value;
@@ -314,16 +335,25 @@ export const getRecommendedUsers = async (userId, options = {}) => {
     return otherId?.toString();
   }).filter(id => id);
 
+  // Fetch bidirectional blocks to exclude blocked users
+  const [blockedByMe, blockedMe] = await Promise.all([
+    Block.find({ userId }).select('blockedId'),
+    Block.find({ blockedId: userId }).select('userId')
+  ]);
+
+  const blockedIds = [
+    ...blockedByMe.map(b => b.blockedId?.toString()),
+    ...blockedMe.map(b => b.userId?.toString())
+  ].filter(id => id);
+
   // Build exclude IDs array - ensure all are valid ObjectId strings
   const excludeIdsSet = new Set();
   excludeIdsSet.add(userId.toString());
   
-  if (shouldRefresh) {
-    matchedUserIds.forEach(id => { if (id) excludeIdsSet.add(id); });
-  } else {
-    swipedUserIds.forEach(id => { if (id) excludeIdsSet.add(id); });
-    matchedUserIds.forEach(id => { if (id) excludeIdsSet.add(id); });
-  }
+  // ALWAYS exclude swiped, matched, and blocked users from recommendation
+  swipedUserIds.forEach(id => { if (id) excludeIdsSet.add(id); });
+  matchedUserIds.forEach(id => { if (id) excludeIdsSet.add(id); });
+  blockedIds.forEach(id => { if (id) excludeIdsSet.add(id); });
   
   const excludeIds = Array.from(excludeIdsSet);
 

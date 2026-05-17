@@ -25,19 +25,17 @@ const userSchema = new mongoose.Schema({
     lowercase: true,
     match: [/^\S+@\S+\.\S+$/, 'Please provide a valid email']
   },
-  
+
   // Schema mới: passwordHash
   passwordHash: {
     type: String,
     select: false // Mặc định không select password
   },
-  
-  // Backward compatible: hỗ trợ cả "password" (sẽ được migrate)
   password: {
     type: String,
     select: false
   },
-  
+
   // Social login - KHÔNG có default: null để tránh sparse index issues
   // Khi không có giá trị, field sẽ không tồn tại trong document
   facebookId: {
@@ -50,10 +48,15 @@ const userSchema = new mongoose.Schema({
   },
   loginMethod: {
     type: String,
-    enum: ['email', 'facebook', 'google'],
+    enum: ['email', 'facebook', 'google', 'local'],
     default: 'email'
   },
-  
+  authProvider: {
+    type: String,
+    enum: ['local', 'google', 'facebook'],
+    default: 'local'
+  },
+
   // Thông tin cá nhân
   fullName: {
     type: String,
@@ -82,13 +85,14 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  aiStatus: { type: String, default: 'pending' },
   photos: [{
     type: String
   }],
   interests: [{
     type: String
   }],
-  
+
   // GeoJSON Location (for geospatial queries)
   // IMPORTANT: Must be null array [0, 0] for 2dsphere index to work properly
   // Set to null array initially so user can update location later
@@ -98,10 +102,10 @@ const userSchema = new mongoose.Schema({
       enum: ['Point'],
       default: 'Point'
     },
-    coordinates: {
-      type: [Number],
-      default: [0, 0]  // Default to [0, 0] so 2dsphere index works
-    }
+   coordinates: {
+          type: [Number],
+          default: [108.206230, 16.047079] // [Kinh độ lng, Vĩ độ lat] - Mặc định Đà Nẵng
+      }
   },
   // Text location for display (e.g., "Can Tho")
   locationText: {
@@ -136,7 +140,7 @@ const userSchema = new mongoose.Schema({
     enum: ['relationship', 'friendship', 'casual', ''],
     default: ''
   },
-  
+
   // Preferences
   preferences: {
     minAge: {
@@ -153,7 +157,7 @@ const userSchema = new mongoose.Schema({
       default: 'both'
     }
   },
-  
+
   // Trạng thái online
   isOnline: {
     type: Boolean,
@@ -163,7 +167,7 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   },
-  
+
   // Role & Security
   role: {
     type: String,
@@ -181,7 +185,7 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  
+
   // OTP & Verification
   otpCode: String,
   otpExpiresAt: Date,
@@ -189,7 +193,7 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  
+
   // Password Reset OTP (separate from email verification)
   resetOTP: {
     type: String,
@@ -199,7 +203,12 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
-  
+
+  // Track OTP requests for rate limiting (max 3 per 5 mins)
+  otpRequests: [{
+    type: Date
+  }],
+
   // KYC
   kycStatus: {
     type: String,
@@ -208,9 +217,27 @@ const userSchema = new mongoose.Schema({
   },
   isVerifiedProfile: {
     type: Boolean,
+    default: false // Deprecated: use verificationLevel
+  },
+  verificationLevel: {
+    type: Number,
+    enum: [1, 2, 3],
+    default: 1
+  },
+  onboardingCompleted: {
+    type: Boolean,
     default: false
   },
-  
+
+  // OCR Verification Data (LV3)
+  verifiedFullName: { type: String, default: null },
+  verifiedDob: { type: String, default: null },
+  verifiedGender: { type: String, default: null },
+  verifiedAddress: { type: String, default: null },
+  verifiedIdNumber: { type: String, default: null },
+  verifiedFaceUrl: { type: String, default: null },
+  cccdVerifiedAt: { type: Date, default: null },
+
   // Fake account detection (từ schema cũ)
   isFake: {
     type: Boolean,
@@ -220,23 +247,70 @@ const userSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-  
+
   // Status
   status: {
     type: String,
-    enum: ['active', 'banned', 'inactive'],
-    default: 'active'
+    enum: ['active', 'banned', 'inactive', 'pending_onboarding'],
+    default: 'pending_onboarding'
   },
-  
+
   // Profile completion (computed)
   profileCompletion: {
     type: Number,
     default: 0,
     min: 0,
     max: 100
+  },
+  membership: {
+    plan: {
+      type: String,
+      enum: ["free", "premium_monthly", "premium_yearly"],
+      default: "free"
+    },
+    status: {
+      type: String,
+      enum: ["inactive", "active", "expired", "cancelled"],
+      default: "inactive"
+    },
+    premiumUntil: {
+      type: Date,
+      default: null
+    },
+    provider: {
+      type: String,
+      enum: ["manual", "momo", "vnpay", null],
+      default: null
+    },
+    lastPaymentId: {
+      type: String,
+      default: null
+    }
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
+});
+
+// Helper isUserPremium(user)
+export function isUserPremium(user) {
+  if (!user) return false;
+  const hasActiveMembership = Boolean(
+    user.membership &&
+    user.membership.status === "active" &&
+    user.membership.premiumUntil &&
+    new Date(user.membership.premiumUntil) > new Date()
+  );
+
+  const hasPremiumRole = user.role === "premium";
+
+  return hasActiveMembership || hasPremiumRole;
+}
+
+// Virtual field for checking premium status
+userSchema.virtual('isPremium').get(function () {
+  return isUserPremium(this);
 });
 
 // Indexes
@@ -246,27 +320,30 @@ userSchema.index({ username: 'text' });
 userSchema.index({ location: '2dsphere' });
 
 // Virtual field để backward compatibility
-userSchema.virtual('password_field').get(function() {
+userSchema.virtual('password_field').get(function () {
   return this.passwordHash || this.password;
 });
 
 // Method so sánh password
-userSchema.methods.matchPassword = async function(enteredPassword) {
+userSchema.methods.matchPassword = async function (enteredPassword) {
   const hashToCompare = this.passwordHash || this.password;
   if (!hashToCompare) return false;
   return await bcrypt.compare(enteredPassword, hashToCompare);
 };
 
 // Transform output - loại bỏ password
-userSchema.methods.toJSON = function() {
+userSchema.methods.toJSON = function () {
   const obj = this.toObject();
   delete obj.password;
   delete obj.passwordHash;
+  if (obj._id) {
+    obj.id = obj._id.toString();
+  }
   return obj;
 };
 
 // Tính profile completion
-userSchema.methods.calculateProfileCompletion = function() {
+userSchema.methods.calculateProfileCompletion = function () {
   const user = this;
   let score = 0;
 
@@ -275,10 +352,10 @@ userSchema.methods.calculateProfileCompletion = function() {
   if (user.age) score += 10;
   // Safe check for GeoJSON location - must be array with 2 valid coordinates
   // and not be the default [0, 0] which indicates unset location
-  if (user.location?.coordinates && 
-      Array.isArray(user.location.coordinates) && 
-      user.location.coordinates.length === 2 &&
-      !(user.location.coordinates[0] === 0 && user.location.coordinates[1] === 0)) {
+  if (user.location?.coordinates &&
+    Array.isArray(user.location.coordinates) &&
+    user.location.coordinates.length === 2 &&
+    !(user.location.coordinates[0] === 0 && user.location.coordinates[1] === 0)) {
     score += 10;
   }
   if (user.interests && user.interests.length > 0) score += 10;
@@ -291,7 +368,7 @@ userSchema.methods.calculateProfileCompletion = function() {
 };
 
 // Pre-save: hash password và tính profile completion
-userSchema.pre('save', async function(next) {
+userSchema.pre('save', async function (next) {
   // MIGRATION: Copy password to passwordHash if passwordHash is missing but password exists
   // This ensures backward compatibility for users created before migration
   if (!this.passwordHash && this.password && !this.password.startsWith('$2')) {
@@ -302,7 +379,7 @@ userSchema.pre('save', async function(next) {
     this.password = undefined;
     console.log(`[User Migration] Copied hashed password to passwordHash for user: ${this.username || this._id}`);
   }
-  
+
   // Hash password mới
   if (this.isModified('password') || (this.isModified('passwordHash') && this.passwordHash && !this.passwordHash.startsWith('$2'))) {
     const salt = await bcrypt.genSalt(10);
@@ -316,17 +393,29 @@ userSchema.pre('save', async function(next) {
       }
     }
   }
-  
+
+  // MIGRATION: verificationLevel
+  if (this.isVerifiedProfile === true && this.verificationLevel === 1) {
+    this.verificationLevel = 2;
+  }
+
   // Tính profile completion
   if (!this.profileCompletion || this.profileCompletion === 0) {
     this.profileCompletion = this.calculateProfileCompletion();
   }
-  
+
+  // Ensure authProvider is set for new users if not provided
+  if (this.isNew && !this.authProvider) {
+    if (this.googleId) this.authProvider = 'google';
+    else if (this.facebookId) this.authProvider = 'facebook';
+    else this.authProvider = 'local';
+  }
+
   next();
 });
 
 // Static method: tìm user bằng email hoặc username
-userSchema.statics.findByEmailOrUsername = function(identifier) {
+userSchema.statics.findByEmailOrUsername = function (identifier) {
   return this.findOne({
     $or: [
       { email: identifier.toLowerCase() },
@@ -336,12 +425,36 @@ userSchema.statics.findByEmailOrUsername = function(identifier) {
 };
 
 // Static method: tìm user bằng social ID
-userSchema.statics.findByFacebookId = function(facebookId) {
+userSchema.statics.findByFacebookId = function (facebookId) {
   return this.findOne({ facebookId });
 };
 
-userSchema.statics.findByGoogleId = function(googleId) {
+userSchema.statics.findByGoogleId = function (googleId) {
   return this.findOne({ googleId });
+};
+
+/**
+ * Safely determine the authentication provider for a user
+ * Handles both new users (with authProvider) and old users (via fallback logic)
+ */
+userSchema.statics.resolveAuthProvider = function (user) {
+  if (!user) return 'local';
+  
+  // 1. Social ID indicators
+  // We check these FIRST because authProvider might have a default 'local' value 
+  // applied by Mongoose to old documents that don't actually have it in DB.
+  if (user.googleId) return 'google';
+  if (user.facebookId) return 'facebook';
+  
+  // 2. Explicit field (New users / Migrated users)
+  if (user.authProvider && user.authProvider !== 'local') return user.authProvider;
+  
+  // 3. Login method fallback
+  if (user.loginMethod === 'google') return 'google';
+  if (user.loginMethod === 'facebook') return 'facebook';
+  
+  // 4. Default to local (email/password)
+  return 'local';
 };
 
 export default mongoose.model('User', userSchema);

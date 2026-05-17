@@ -37,6 +37,7 @@ export const getSessions = async (req, res, next) => {
     } = req.query;
 
     const result = await sessionService.getSessions({
+      currentUser: req.user,
       page: Number(page),
       limit: Number(limit),
       status,
@@ -67,7 +68,7 @@ export const getSessions = async (req, res, next) => {
  */
 export const getSessionStats = async (req, res, next) => {
   try {
-    const stats = await sessionService.getSessionStats();
+    const stats = await sessionService.getSessionStats(req.user);
 
     res.json({
       success: true,
@@ -91,7 +92,7 @@ export const killSession = async (req, res, next) => {
     const { reason } = req.body || {};
     const adminId = req.user._id;
 
-    const result = await sessionService.killSession(id, adminId, reason);
+    const result = await sessionService.killSession(id, req.user, reason);
 
     if (result.error) {
       // PB24: Ghi log thất bại
@@ -143,7 +144,7 @@ export const bulkKillSessions = async (req, res, next) => {
     const { sessionIds, reason } = req.body || {};
     const adminId = req.user._id;
 
-    const result = await sessionService.bulkKillSessions(sessionIds, adminId, reason);
+    const result = await sessionService.bulkKillSessions(sessionIds, req.user, reason);
 
     if (result.error) {
       return res.status(result.status).json({

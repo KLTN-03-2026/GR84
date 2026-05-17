@@ -133,7 +133,8 @@ export const getFullProfile = async (targetUserId, currentUserId) => {
     bio: user.bio || '',
     job_title: user.occupation || '',
     gender: user.gender || '',
-    is_verified: user.isVerifiedProfile || false,
+    verificationLevel: user.verificationLevel || 1,
+    isVerified: (user.verificationLevel >= 2) || (user.isVerifiedProfile === true),
     last_active: user.lastSeen?.toISOString() || null,
     images,
     interests: user.interests || []
@@ -212,7 +213,7 @@ export const getProfileById = async (userId) => {
     bio: user.bio || '',
     job_title: user.occupation || '',
     gender: user.gender || '',
-    is_verified: user.isVerifiedProfile || false,
+    verificationLevel: user.verificationLevel || 1,
     last_active: user.lastSeen?.toISOString() || null,
     images,
     interests: user.interests || []

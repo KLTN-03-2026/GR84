@@ -9,7 +9,8 @@
     "dev": "node --watch src/index.js",
     "dev:clean": "npm run kill-port && npm run dev",
     "kill-port": "npx kill-port 5000",
-    "dev:nodemon": "npx nodemon src/index.js"
+    "dev:nodemon": "npx nodemon src/index.js",
+    "migrate:chat": "node scripts/migrate-chat-fields.js"
   },
   "keywords": [
     "dating",
@@ -43,9 +44,10 @@
     "passport-facebook": "^3.0.0",
     "passport-google-oauth20": "^2.0.0",
     "pdfkit": "^0.18.0",
+    "resend": "^6.12.3",
     "socket.io": "^4.6.1",
     "ua-parser-js": "^2.0.9",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "kill-port": "^2.0.1",

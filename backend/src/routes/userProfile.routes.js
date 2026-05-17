@@ -8,10 +8,12 @@
 
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
+import { upload } from '../config/upload.js';
 import {
   getMyProfile,
   updateMyProfile,
-  getMyProfileStats
+  getMyProfileStats,
+  uploadToGallery
 } from '../controllers/userProfile/userProfile.controller.js';
 
 const router = Router();
@@ -72,7 +74,15 @@ router.get('/', authenticate, getMyProfile);
  *   }
  * }
  */
-router.put('/', authenticate, updateMyProfile);
+router.put(
+  '/',
+  authenticate,
+  upload.fields([
+    { name: 'avatar', maxCount: 1 },
+    { name: 'biometricPhoto', maxCount: 1 }
+  ]),
+  updateMyProfile
+);
 
 /**
  * @route   GET /api/profile/stats
@@ -94,5 +104,17 @@ router.put('/', authenticate, updateMyProfile);
  * }
  */
 router.get('/stats', authenticate, getMyProfileStats);
+
+/**
+ * @route   POST /api/profile/gallery
+ * @desc    Upload a single photo to current user's gallery
+ * @access  Private (requires JWT)
+ */
+router.post(
+  '/gallery',
+  authenticate,
+  upload.single('file'),
+  uploadToGallery
+);
 
 export default router;

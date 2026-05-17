@@ -25,7 +25,6 @@ import Dashboard from './pages/Dashboard';
 import UserManagement from './pages/UserManagement';
 import CategoryManagement from './pages/CategoryManagement';
 import SessionManagement from './pages/SessionManagement';
-import CensorshipAndViolationManagement from './pages/CensorshipAndViolationManagement';
 import SystemTrace from './pages/AdminLog';
 
 const ProtectedRoute = ({ children }) => {
@@ -134,14 +133,6 @@ function App() {
               element={
                 <AdminProtectedRoute>
                   <SessionManagement />
-                </AdminProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin/ai"
-              element={
-                <AdminProtectedRoute>
-                  <CensorshipAndViolationManagement />
                 </AdminProtectedRoute>
               }
             />

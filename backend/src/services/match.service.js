@@ -233,61 +233,11 @@ export const unmatchUser = async (userId, matchId) => {
     return { error: 'Not authorized to unmatch', status: 403 };
   }
 
-  // Determine the other user
-  const otherUserId = match.hasUser(match.user1Id)
-    ? match.user2Id?.toString() === userId.toString()
-      ? match.user1Id
-      : match.user2Id
-    : match.user1Id;
-
-  const u1 = match.user1Id?.toString();
-  const u2 = match.user2Id?.toString();
-  const other = u1 === userId.toString() ? u2 : u1;
-
-  // 1. Deactivate match
   match.isActive = false;
   match.status = 'unmatched';
   match.unmatchedBy = userId;
   match.unmatchedAt = new Date();
   await match.save();
-
-  // 2. Delete all messages for this match (both matchId and conversationId-based)
-  try {
-    const Message = (await import('../models/Message.js')).default;
-    await Message.deleteMany({
-      $or: [
-        { matchId: match._id },
-        { conversationId: match._id }
-      ]
-    });
-  } catch (msgErr) {
-    console.error('[unmatchUser] Failed to delete messages:', msgErr.message);
-  }
-
-  // 3. Add mutual "pass" swipes so neither appears in Discover for the other
-  if (other) {
-    try {
-      const mongoose = await import('mongoose');
-      const ObjId = mongoose.default.Types.ObjectId;
-      const userIdObj = new ObjId(userId.toString());
-      const otherIdObj = new ObjId(other);
-
-      // Current user passes the other
-      await Swipe.findOneAndUpdate(
-        { swiperId: userIdObj, swipedId: otherIdObj },
-        { swiperId: userIdObj, swipedId: otherIdObj, action: 'pass' },
-        { upsert: true, new: true }
-      );
-      // Other user passes current user (so they don't see them either)
-      await Swipe.findOneAndUpdate(
-        { swiperId: otherIdObj, swipedId: userIdObj },
-        { swiperId: otherIdObj, swipedId: userIdObj, action: 'pass' },
-        { upsert: true, new: true }
-      );
-    } catch (swipeErr) {
-      console.error('[unmatchUser] Failed to create pass swipes:', swipeErr.message);
-    }
-  }
 
   return { message: 'Unmatched successfully' };
 };
